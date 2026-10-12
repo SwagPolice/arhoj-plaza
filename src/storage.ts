@@ -31,3 +31,7 @@ export function saveOne(recipe: CharacterRecipe) {
 export function removeOne(id: string) {
   writeAll(loadAll().filter((r) => r.id !== id));
 }
+
+export function removeAll() {
+  writeAll([]);
+}

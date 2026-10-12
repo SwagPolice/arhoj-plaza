@@ -5,7 +5,7 @@ import { addLights } from '../scene/stage';
 import { buildIsland } from '../scene/island';
 import { buildCharacter, disposeObject } from '../character/build';
 import { randomRecipe, type CharacterRecipe } from '../character/recipe';
-import { loadAll, saveOne } from '../storage';
+import { loadAll, removeAll, saveOne } from '../storage';
 import { button, el } from '../ui/dom';
 import { Agent, randomSpot, stepAgents, type World } from './behaviour';
 import { Bubbles } from './bubbles';
@@ -71,6 +71,7 @@ export class Plaza implements Mode {
 
     const tools = el('div', 'plaza-tools');
     tools.append(
+      button('🧹 Clear plaza', 'btn', () => this.clearAll()),
       button('＋ Random friend', 'btn', () => this.invite(1)),
       button('✏️ Make new', 'btn', () => this.hooks.create()),
     );
@@ -155,6 +156,15 @@ export class Plaza implements Mode {
 
   private invite(count: number) {
     for (let i = 0; i < count; i++) saveOne(randomRecipe());
+    this.sync();
+  }
+
+  private clearAll() {
+    const count = this.agents.length;
+    if (!count || !confirm(`Say goodbye to all ${count} characters? This can't be undone.`)) return;
+    removeAll();
+    this.card.style.display = 'none';
+    this.bubbles.clear();
     this.sync();
   }
 

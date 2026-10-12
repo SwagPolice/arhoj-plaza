@@ -5,19 +5,23 @@ import type { Mode } from '../mode';
 import { addLights, glaze, PAPER } from '../scene/stage';
 import { buildCharacter, disposeObject, type BuiltCharacter } from '../character/build';
 import {
-  BODIES, EYES, FINISHES, HEIGHT, MOUTHS, PERSONALITIES, TOPPERS, WIDTH,
-  defaultRecipe, randomLooks, randomName, type CharacterRecipe,
+  BODIES, CLAY_HEIGHT, EDGES, EYE_HEIGHT, EYE_SIZE, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
+  PERSONALITIES, REACH, TOPPERS, WIDTH,
+  defaultRecipe, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type GlazeLayer,
 } from '../character/recipe';
-import { GLAZES } from '../character/palette';
+import { GLAZES, METALS, type Swatch } from '../character/palette';
 import { loadAll, removeOne, saveOne } from '../storage';
 import { button, el } from '../ui/dom';
 
 const LABELS: Record<string, string> = {
-  cone: 'Cone', mushroom: 'Mushroom', ghost: 'Ghost', bean: 'Bean', bell: 'Bell',
-  glossy: 'Glossy', speckled: 'Speckled', drip: 'Drip',
+  ghost: 'Ghost', cone: 'Cone', mushroom: 'Mushroom', bean: 'Bean', bell: 'Bell', blob: 'Blob',
+  glossy: 'Glossy', satin: 'Satin', metallic: 'Metallic',
+  plain: 'Plain', speckle: 'Speckle', streaks: 'Streaks',
+  clean: 'Clean', wavy: 'Wavy', drips: 'Drips', fade: 'Fade',
+  ring: 'Arhoj',
   none: 'None', cap: 'Beret', spots: 'Spots', leaf: 'Sprout', 'tiny-hat': 'Top hat',
   dots: 'Dots', wide: 'Big', closed: 'Happy', sleepy: 'Sleepy',
-  smile: 'Smile', o: 'Ooh', cat: 'Cat',
+  red: 'Tiny red', smile: 'Smile', o: 'Ooh', cat: 'Cat',
   calm: '🍵 Calm', curious: '🔍 Curious', shy: '🌱 Shy', bouncy: '🎵 Bouncy',
 };
 
@@ -31,6 +35,8 @@ export class Editor implements Mode {
   private layer = el('div', 'layer');
   private panel = el('aside', 'panel');
   private savedList = el('div', 'saved-list');
+  private layersEl = el('div', 'layers');
+  private selectedLayer = 0;
   private toastEl = el('div', 'toast');
   private syncers: (() => void)[] = [];
   private pop = 0;
@@ -74,6 +80,7 @@ export class Editor implements Mode {
 
   load(recipe: CharacterRecipe) {
     this.recipe = { ...recipe };
+    this.selectedLayer = 0;
     this.rebuild();
     this.sync();
     this.renderSaved();
@@ -151,6 +158,7 @@ export class Editor implements Mode {
 
     const blush = button('Blush', 'chip', () => this.set('cheeks', !this.recipe.cheeks));
     this.syncers.push(() => blush.classList.toggle('on', this.recipe.cheeks));
+    this.syncers.push(() => this.renderLayers());
 
     const actions = el('div', 'actions');
     actions.append(
@@ -167,9 +175,14 @@ export class Editor implements Mode {
       nameRow,
       section('Shape', this.chips('body', BODIES)),
       section('Size', this.slider('height', 'Tall', HEIGHT), this.slider('width', 'Wide', WIDTH)),
-      section('Glaze', this.swatches('glaze'), this.chips('glazeFinish', FINISHES)),
+      section('Glaze', this.slider('clayHeight', 'Clay', CLAY_HEIGHT), this.layersEl),
       section('On top', this.chips('topper', TOPPERS), this.swatches('topperColour')),
-      section('Eyes', this.chips('eyes', EYES)),
+      section(
+        'Eyes',
+        this.chips('eyes', EYES),
+        this.slider('eyeHeight', 'Height', EYE_HEIGHT),
+        this.slider('eyeSize', 'Size', EYE_SIZE),
+      ),
       section('Mouth', this.chips('mouth', MOUTHS), blush),
       section('Personality', this.chips('personality', PERSONALITIES)),
       actions,
@@ -187,7 +200,7 @@ export class Editor implements Mode {
     return wrap;
   }
 
-  private swatches(key: 'glaze' | 'topperColour') {
+  private swatches(key: 'topperColour') {
     const wrap = el('div', 'swatches');
     for (const g of GLAZES) {
       const b = button('', 'swatch', () => this.set(key, g.hex));
@@ -199,7 +212,11 @@ export class Editor implements Mode {
     return wrap;
   }
 
-  private slider(key: 'height' | 'width', label: string, range: { min: number; max: number }) {
+  private slider(
+    key: 'height' | 'width' | 'clayHeight' | 'eyeHeight' | 'eyeSize',
+    label: string,
+    range: { min: number; max: number },
+  ) {
     const row = el('label', 'slider');
     const input = el('input');
     input.type = 'range';
@@ -213,6 +230,99 @@ export class Editor implements Mode {
     this.syncers.push(() => (input.value = String(this.recipe[key])));
     row.append(el('span', '', label), input);
     return row;
+  }
+
+  // ---------- glaze layers ----------
+
+  /** The layer editor is redrawn whenever layers change, since the controls depend on the layer. */
+  private renderLayers() {
+    const layers = this.recipe.layers;
+    this.selectedLayer = Math.min(this.selectedLayer, layers.length - 1);
+    const i = this.selectedLayer;
+    const layer = layers[i];
+
+    const tabs = el('div', 'chips');
+    layers.forEach((l, j) => {
+      const tab = button('', 'chip' + (j === i ? ' on' : ''), () => {
+        this.selectedLayer = j;
+        this.renderLayers();
+      });
+      const dotEl = el('span', 'layer-dot');
+      dotEl.style.background = l.colour;
+      tab.append(dotEl, j === 0 ? 'Base' : `Dip ${j}`);
+      tabs.append(tab);
+    });
+    if (layers.length < MAX_LAYERS) {
+      tabs.append(
+        button('＋ Dip', 'chip', () => {
+          this.selectedLayer = layers.length;
+          this.setLayers([...layers, randomLayer(false)]);
+        }),
+      );
+    }
+
+    const parts: HTMLElement[] = [
+      tabs,
+      this.swatchRow([...GLAZES, ...METALS], layer.colour, (hex) =>
+        this.patchLayer({ colour: hex, finish: isMetal(hex) ? 'metallic' : layer.finish === 'metallic' ? 'glossy' : layer.finish }),
+      ),
+      this.chipRow(FINISHES, layer.finish, (finish) => this.patchLayer({ finish })),
+      el('div', 'sub', 'Pattern'),
+      this.chipRow(PATTERNS, layer.pattern, (pattern) => this.patchLayer({ pattern })),
+    ];
+    if (layer.pattern !== 'plain') {
+      parts.push(this.swatchRow(GLAZES, layer.patternColour, (patternColour) => this.patchLayer({ patternColour })));
+    }
+    parts.push(
+      el('div', 'sub', i === 0 ? 'Where it meets the clay' : 'Bottom edge'),
+      this.chipRow(EDGES, layer.edge, (edge) => this.patchLayer({ edge })),
+    );
+    if (i > 0) {
+      const row = el('label', 'slider');
+      const input = el('input');
+      input.type = 'range';
+      input.min = String(REACH.min);
+      input.max = String(REACH.max);
+      input.step = '0.01';
+      input.value = String(layer.reach);
+      input.addEventListener('input', () => this.patchLayer({ reach: parseFloat(input.value) }, false));
+      row.append(el('span', '', 'Depth'), input);
+      parts.push(
+        row,
+        button('Remove this dip', 'btn small', () => this.setLayers(layers.filter((_, j) => j !== i))),
+      );
+    }
+    this.layersEl.replaceChildren(...parts);
+  }
+
+  private setLayers(layers: GlazeLayer[]) {
+    this.recipe = { ...this.recipe, layers };
+    this.rebuild();
+    this.renderLayers();
+  }
+
+  private patchLayer(patch: Partial<GlazeLayer>, redraw = true) {
+    const layers = this.recipe.layers.map((l, j) => (j === this.selectedLayer ? { ...l, ...patch } : l));
+    this.recipe = { ...this.recipe, layers };
+    this.rebuild();
+    if (redraw) this.renderLayers();
+  }
+
+  private chipRow<T extends string>(options: readonly T[], current: T, pick: (v: T) => void) {
+    const wrap = el('div', 'chips');
+    for (const v of options) wrap.append(button(LABELS[v] ?? v, 'chip' + (v === current ? ' on' : ''), () => pick(v)));
+    return wrap;
+  }
+
+  private swatchRow(swatches: Swatch[], current: string, pick: (hex: string) => void) {
+    const wrap = el('div', 'swatches');
+    for (const g of swatches) {
+      const b = button('', 'swatch' + (g.hex === current.toLowerCase() ? ' on' : '') + (isMetal(g.hex) ? ' metal' : ''), () => pick(g.hex));
+      b.style.backgroundColor = g.hex;
+      b.title = g.name;
+      wrap.append(b);
+    }
+    return wrap;
   }
 
   private save() {
@@ -234,7 +344,7 @@ export class Editor implements Mode {
       const item = el('div', 'saved' + (r.id === this.recipe.id ? ' on' : ''));
       const open = button('', 'saved-open', () => this.load(r));
       const dotEl = el('span', 'saved-dot');
-      dotEl.style.background = r.glaze;
+      dotEl.style.background = r.layers[r.layers.length - 1].colour;
       open.append(dotEl, el('span', '', r.name || 'Unnamed'));
       const del = button('×', 'saved-del', () => {
         if (!confirm(`Say goodbye to ${r.name}?`)) return;

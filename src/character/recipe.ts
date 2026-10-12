@@ -1,15 +1,19 @@
-import { GLAZES } from './palette';
+import { GLAZES, METALS } from './palette';
 import { between, pick } from '../util/random';
 
-export const BODIES = ['cone', 'mushroom', 'ghost', 'bean', 'bell'] as const;
-export const FINISHES = ['glossy', 'speckled', 'drip'] as const;
+export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'mushroom', 'blob'] as const;
+export const FINISHES = ['glossy', 'satin', 'metallic'] as const;
+export const PATTERNS = ['plain', 'speckle', 'dots', 'streaks'] as const;
+export const EDGES = ['clean', 'wavy', 'drips', 'fade'] as const;
 export const TOPPERS = ['none', 'cap', 'spots', 'leaf', 'tiny-hat'] as const;
-export const EYES = ['dots', 'wide', 'closed', 'sleepy'] as const;
-export const MOUTHS = ['none', 'smile', 'o', 'cat'] as const;
+export const EYES = ['ring', 'dots', 'wide', 'closed', 'sleepy'] as const;
+export const MOUTHS = ['none', 'red', 'smile', 'o', 'cat'] as const;
 export const PERSONALITIES = ['calm', 'curious', 'shy', 'bouncy'] as const;
 
 export type Body = (typeof BODIES)[number];
 export type Finish = (typeof FINISHES)[number];
+export type Pattern = (typeof PATTERNS)[number];
+export type Edge = (typeof EDGES)[number];
 export type Topper = (typeof TOPPERS)[number];
 export type Eyes = (typeof EYES)[number];
 export type Mouth = (typeof MOUTHS)[number];
@@ -17,6 +21,24 @@ export type Personality = (typeof PERSONALITIES)[number];
 
 export const HEIGHT = { min: 0.8, max: 1.4 };
 export const WIDTH = { min: 0.75, max: 1.3 };
+export const CLAY_HEIGHT = { min: 0.04, max: 0.4 };
+export const REACH = { min: 0.1, max: 1 };
+export const EYE_HEIGHT = { min: 0, max: 1 };
+export const EYE_SIZE = { min: 0.7, max: 1.5 };
+export const MAX_LAYERS = 3;
+
+/**
+ * One dip of glaze. The first layer covers everything above the bare clay;
+ * later layers are dipped from the top and cover `reach` of the glazed height.
+ */
+export type GlazeLayer = {
+  colour: string;
+  finish: Finish;
+  pattern: Pattern;
+  patternColour: string;
+  edge: Edge;
+  reach: number;
+};
 
 /** Everything needed to rebuild a character. Small, plain JSON so it's easy to save and share. */
 export type CharacterRecipe = {
@@ -25,11 +47,13 @@ export type CharacterRecipe = {
   body: Body;
   height: number;
   width: number;
-  glaze: string;
-  glazeFinish: Finish;
+  clayHeight: number;
+  layers: GlazeLayer[];
   topper: Topper;
   topperColour: string;
   eyes: Eyes;
+  eyeHeight: number;
+  eyeSize: number;
   mouth: Mouth;
   cheeks: boolean;
   personality: Personality;
@@ -47,69 +71,128 @@ export function newId(): string {
   return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+export const isMetal = (hex: string) => METALS.some((m) => m.hex === hex.toLowerCase());
+
+export function defaultLayer(colour = '#a9e0c8'): GlazeLayer {
+  return { colour, finish: 'glossy', pattern: 'plain', patternColour: '#fffdf8', edge: 'clean', reach: 0.5 };
+}
+
 export function defaultRecipe(): CharacterRecipe {
   return {
     id: newId(),
     name: randomName(),
-    body: 'cone',
+    body: 'ghost',
     height: 1,
     width: 1,
-    glaze: '#efe5d0',
-    glazeFinish: 'speckled',
+    clayHeight: 0.2,
+    layers: [defaultLayer()],
     topper: 'none',
     topperColour: '#ec8a6a',
-    eyes: 'dots',
-    mouth: 'smile',
-    cheeks: true,
+    eyes: 'ring',
+    eyeHeight: 0.55,
+    eyeSize: 1,
+    mouth: 'none',
+    cheeks: false,
     personality: 'calm',
   };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+const weighted = <T>(options: [T, number][]): T => {
+  let roll = Math.random() * options.reduce((s, [, w]) => s + w, 0);
+  for (const [v, w] of options) if ((roll -= w) <= 0) return v;
+  return options[0][0];
+};
+
+export function randomLayer(isBase: boolean): GlazeLayer {
+  if (!isBase && Math.random() < 0.12) {
+    return { ...defaultLayer(pick(METALS).hex), finish: 'metallic', edge: pick(['clean', 'wavy'] as const), reach: round2(between(0.3, 0.75)) };
+  }
+  const pattern = weighted<Pattern>([['plain', 45], ['speckle', 25], ['dots', 15], ['streaks', 15]]);
+  return {
+    colour: pick(GLAZES).hex,
+    finish: weighted<Finish>([['glossy', 80], ['satin', 20]]),
+    pattern,
+    patternColour: pattern === 'dots' ? '#f7f4ee' : pattern === 'speckle' ? '#24232a' : pick(GLAZES).hex,
+    edge: isBase ? weighted<Edge>([['clean', 60], ['wavy', 25], ['drips', 15]]) : weighted<Edge>([['clean', 30], ['drips', 35], ['fade', 20], ['wavy', 15]]),
+    reach: round2(between(0.25, 0.8)),
+  };
+}
+
 /** New look and personality, same id and name. */
 export function randomLooks(r: CharacterRecipe): CharacterRecipe {
-  const glaze = pick(GLAZES).hex;
-  let accent = pick(GLAZES).hex;
-  while (accent === glaze) accent = pick(GLAZES).hex;
+  const layers = [randomLayer(true)];
+  if (Math.random() < 0.7) layers.push(randomLayer(false));
+  if (Math.random() < 0.25) layers.push({ ...randomLayer(false), reach: round2(between(0.1, 0.35)) });
   return {
     ...r,
-    body: pick(BODIES),
+    body: weighted<Body>([['ghost', 50], ['cone', 10], ['bell', 10], ['bean', 10], ['mushroom', 10], ['blob', 10]]),
     height: round2(between(HEIGHT.min, HEIGHT.max)),
     width: round2(between(WIDTH.min, WIDTH.max)),
-    glaze,
-    glazeFinish: pick(FINISHES),
-    topper: pick(TOPPERS),
-    topperColour: accent,
-    eyes: pick(EYES),
-    mouth: pick(MOUTHS),
-    cheeks: Math.random() < 0.6,
+    clayHeight: round2(between(0.12, 0.3)),
+    layers,
+    topper: weighted<Topper>([['none', 70], ['cap', 8], ['spots', 8], ['leaf', 7], ['tiny-hat', 7]]),
+    topperColour: pick(GLAZES).hex,
+    eyes: weighted<Eyes>([['ring', 70], ['dots', 10], ['wide', 10], ['closed', 5], ['sleepy', 5]]),
+    eyeHeight: round2(between(0.1, 0.95)),
+    eyeSize: round2(between(0.8, 1.3)),
+    mouth: weighted<Mouth>([['none', 70], ['red', 15], ['smile', 5], ['o', 5], ['cat', 5]]),
+    cheeks: Math.random() < 0.2,
     personality: pick(PERSONALITIES),
   };
 }
 
 export const randomRecipe = () => randomLooks(defaultRecipe());
 
+// ---------- loading saved data ----------
+
+const oneOf = <T extends string>(xs: readonly T[], v: unknown, fb: T): T =>
+  (xs as readonly unknown[]).includes(v) ? (v as T) : fb;
+const num = (v: unknown, range: { min: number; max: number }, fb: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(range.max, Math.max(range.min, v)) : fb;
+const colour = (v: unknown, fb: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : fb);
+
+function normaliseLayer(raw: unknown): GlazeLayer {
+  const d = defaultLayer();
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    colour: colour(o.colour, d.colour),
+    finish: oneOf(FINISHES, o.finish, d.finish),
+    pattern: oneOf(PATTERNS, o.pattern, d.pattern),
+    patternColour: colour(o.patternColour, d.patternColour),
+    edge: oneOf(EDGES, o.edge, d.edge),
+    reach: num(o.reach, REACH, d.reach),
+  };
+}
+
 /** Turn anything loaded from storage into a valid recipe, filling gaps with defaults. */
 export function normaliseRecipe(raw: unknown): CharacterRecipe {
   const d = defaultRecipe();
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const oneOf = <T extends string>(xs: readonly T[], v: unknown, fb: T): T =>
-    (xs as readonly unknown[]).includes(v) ? (v as T) : fb;
-  const num = (v: unknown, lo: number, hi: number, fb: number) =>
-    typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fb;
-  const colour = (v: unknown, fb: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fb);
+  let layers = Array.isArray(o.layers) ? o.layers.slice(0, MAX_LAYERS).map(normaliseLayer) : [];
+  if (!layers.length) {
+    // Characters saved before glaze layers existed.
+    layers = [{
+      ...defaultLayer(colour(o.glaze, d.layers[0].colour)),
+      pattern: o.glazeFinish === 'speckled' ? 'speckle' : 'plain',
+      patternColour: '#24232a',
+      edge: o.glazeFinish === 'drip' ? 'drips' : 'clean',
+    }];
+  }
   return {
     id: typeof o.id === 'string' && o.id ? o.id : d.id,
     name: typeof o.name === 'string' ? o.name.slice(0, 18) : d.name,
     body: oneOf(BODIES, o.body, d.body),
-    height: num(o.height, HEIGHT.min, HEIGHT.max, d.height),
-    width: num(o.width, WIDTH.min, WIDTH.max, d.width),
-    glaze: colour(o.glaze, d.glaze),
-    glazeFinish: oneOf(FINISHES, o.glazeFinish, d.glazeFinish),
+    height: num(o.height, HEIGHT, d.height),
+    width: num(o.width, WIDTH, d.width),
+    clayHeight: num(o.clayHeight, CLAY_HEIGHT, d.clayHeight),
+    layers,
     topper: oneOf(TOPPERS, o.topper, d.topper),
     topperColour: colour(o.topperColour, d.topperColour),
     eyes: oneOf(EYES, o.eyes, d.eyes),
+    eyeHeight: num(o.eyeHeight, EYE_HEIGHT, d.eyeHeight),
+    eyeSize: num(o.eyeSize, EYE_SIZE, d.eyeSize),
     mouth: oneOf(MOUTHS, o.mouth, d.mouth),
     cheeks: typeof o.cheeks === 'boolean' ? o.cheeks : d.cheeks,
     personality: oneOf(PERSONALITIES, o.personality, d.personality),

@@ -1,25 +1,26 @@
 import * as THREE from 'three';
 import type { Body, CharacterRecipe, Eyes, Mouth } from './recipe';
-import { BLUSH, CLAY, CREAM, INK, WHITE } from './palette';
-import { canvasTexture, glaze, makeCanvas, speckle } from '../scene/stage';
+import { BLUSH, CREAM, INK, MOUTH_RED, WHITE } from './palette';
+import { glaze } from '../scene/stage';
 import { hashString, mulberry32 } from '../util/random';
+import { colourAt, glazeMaterial } from './glaze';
 
 export type Pt = [number, number];
 
 // Body silhouettes as [radius, height] points, spun around the vertical axis (like a potter's wheel).
 const BODY_PROFILES: Record<Body, Pt[]> = {
+  // The classic Arhoj ghost: tall, straight-sided, rounded tip.
+  ghost: [[0, 0], [0.2, 0], [0.37, 0], [0.395, 0.015], [0.4, 0.05], [0.37, 0.3], [0.32, 0.62], [0.27, 0.92], [0.22, 1.14], [0.16, 1.28], [0.08, 1.355], [0, 1.37]],
   cone: [[0, 0], [0.25, 0], [0.5, 0], [0.54, 0.05], [0.48, 0.22], [0.38, 0.48], [0.26, 0.74], [0.14, 0.95], [0.05, 1.07], [0, 1.1]],
   bell: [[0, 0], [0.27, 0], [0.54, 0], [0.57, 0.06], [0.5, 0.25], [0.44, 0.55], [0.4, 0.78], [0.3, 0.96], [0.14, 1.04], [0, 1.06]],
-  ghost: [[0, 0], [0.28, 0], [0.56, 0], [0.57, 0.05], [0.47, 0.2], [0.44, 0.5], [0.42, 0.75], [0.33, 0.95], [0.17, 1.05], [0, 1.08]],
   bean: [[0, 0], [0.14, 0], [0.28, 0.01], [0.42, 0.08], [0.49, 0.3], [0.49, 0.6], [0.42, 0.86], [0.25, 1.0], [0, 1.04]],
   mushroom: [[0, 0], [0.18, 0], [0.38, 0], [0.4, 0.04], [0.37, 0.25], [0.35, 0.5], [0.33, 0.68], [0, 0.72]],
+  blob: [[0, 0], [0.28, 0], [0.56, 0], [0.57, 0.05], [0.47, 0.2], [0.44, 0.5], [0.42, 0.75], [0.33, 0.95], [0.17, 1.05], [0, 1.08]],
 };
 const MUSHROOM_CAP: Pt[] = [[0, 0.6], [0.25, 0.59], [0.46, 0.58], [0.58, 0.62], [0.58, 0.7], [0.48, 0.85], [0.28, 0.95], [0, 0.98]];
 
-// Where the face sits, as a fraction of the (unscaled) profile height.
-const FACE_Y: Record<Body, number> = { cone: 0.42, bell: 0.48, ghost: 0.55, bean: 0.55, mushroom: 0.3 };
-
-const DRIP_EDGE = 0.17; // glaze stops this far up the body, leaving bare clay below
+// Highest the eyes can go, as a fraction of body height (lower on mushrooms so the cap doesn't hide them).
+const EYE_TOP: Record<Body, number> = { ghost: 0.86, cone: 0.8, bell: 0.85, bean: 0.85, mushroom: 0.62, blob: 0.85 };
 
 export type BuiltCharacter = {
   root: THREE.Group; // placed in the world
@@ -36,7 +37,7 @@ export function sampleProfile(pts: Pt[], divisions = 64): THREE.Vector2[] {
 export function latheFrom(pts: Pt[], segments = 64) {
   const sampled = sampleProfile(pts);
   const geo = new THREE.LatheGeometry(sampled, segments);
-  // Map texture v to height, so glaze drips line up the same way on every body shape.
+  // Map texture v to height, so glaze layers line up the same way on every body shape.
   const pos = geo.attributes.position;
   const uv = geo.attributes.uv;
   const top = maxY(sampled);
@@ -85,8 +86,19 @@ function stick(obj: THREE.Object3D, s: Surface, py: number, angle: number, lift 
   return obj;
 }
 
+/** Curve a flat shape around a cylinder of radius R, so decals hug the body. */
+function bend<G extends THREE.BufferGeometry>(geo: G, R: number): G {
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    pos.setZ(i, pos.getZ(i) - (R - Math.sqrt(Math.max(R * R - x * x, 0))));
+  }
+  return geo;
+}
+
 export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
-  const rand = mulberry32(hashString(r.id));
+  const seed = hashString(r.id);
+  const rand = mulberry32(seed);
   const sx = r.width;
   const sy = r.height;
   const root = new THREE.Group();
@@ -94,7 +106,7 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
   root.add(pose);
 
   const body = latheFrom(BODY_PROFILES[r.body]);
-  const bodyMesh = new THREE.Mesh(body.geo, bodyMaterial(r, rand));
+  const bodyMesh = new THREE.Mesh(body.geo, glazeMaterial(r, seed));
   bodyMesh.scale.set(sx, sy, sx);
   pose.add(bodyMesh);
   const bodySurface: Surface = { pts: body.pts, sx, sy };
@@ -121,77 +133,34 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
   return { root, pose, height: top, radius };
 }
 
-// ---------- glaze ----------
-
-type Drip = { x: number; w: number; len: number };
-
-function bodyMaterial(r: CharacterRecipe, rand: () => number): THREE.MeshPhysicalMaterial {
-  if (r.glazeFinish === 'glossy') return glaze(r.glaze);
-  const W = 512;
-  const H = 256;
-  const drips: Drip[] =
-    r.glazeFinish === 'drip'
-      ? Array.from({ length: 16 }, () => ({ x: rand() * W, w: 10 + rand() * 22, len: 4 + rand() * 22 }))
-      : [];
-  const paint = (ctx: CanvasRenderingContext2D, glazeFill: string, clayFill: string) => {
-    const edge = H * (1 - DRIP_EDGE);
-    ctx.fillStyle = clayFill;
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = glazeFill;
-    ctx.fillRect(0, 0, W, edge);
-    for (const d of drips) {
-      for (const x of [d.x - W, d.x, d.x + W]) {
-        ctx.fillRect(x - d.w / 2, edge - 1, d.w, d.len);
-        ctx.beginPath();
-        ctx.arc(x, edge + d.len, d.w / 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  };
-
-  const colour = makeCanvas(W, H, (ctx) => {
-    if (drips.length) paint(ctx, r.glaze, CLAY);
-    else {
-      ctx.fillStyle = r.glaze;
-      ctx.fillRect(0, 0, W, H);
-    }
-    speckle(ctx, W, H, rand, drips.length ? 500 : 1400);
-  });
-  const map = canvasTexture(colour, true);
-  map.offset.x = 0.5; // keep the texture seam at the back
-  const mat = glaze('#ffffff', { map });
-
-  if (drips.length) {
-    // Bare clay is matte; glazed part is glossy.
-    const rough = canvasTexture(makeCanvas(W, H, (ctx) => paint(ctx, 'rgb(80,80,80)', 'rgb(235,235,235)')), false);
-    const coat = canvasTexture(makeCanvas(W, H, (ctx) => paint(ctx, '#fff', '#000')), false);
-    rough.offset.x = coat.offset.x = 0.5;
-    mat.roughness = 1;
-    mat.roughnessMap = rough;
-    mat.clearcoatMap = coat;
-  }
-  return mat;
-}
-
 // ---------- face ----------
 
 function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface) {
-  // Dark glazes get light faces so they stay readable.
-  const dark = new THREE.Color(r.glaze).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
-  const ink = glaze(dark ? CREAM : INK, { roughness: 0.25 });
-  const faceY = FACE_Y[r.body] * s.sy;
-  const place = (worldY: number, arc: number, obj: THREE.Object3D | null) => {
+  const top = maxY(s.pts);
+  const hi = EYE_TOP[r.body];
+  const lo = Math.min(hi, r.clayHeight + 0.06);
+  const v = lo + r.eyeHeight * (hi - lo);
+  const py = v * top;
+  const size = r.eyeSize;
+  const R = surfacePoint(s, py, 0).R;
+
+  // Painted-style faces switch to cream on dark glazes; decal eyes bring their own white.
+  const dark = new THREE.Color(colourAt(r, v)).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
+  const ink = glaze(dark && r.eyes !== 'ring' ? CREAM : INK, { roughness: 0.25 });
+
+  const place = (worldDy: number, arc: number, obj: THREE.Object3D | null, lift = 0.004) => {
     if (!obj) return;
-    const py = worldY / s.sy;
-    const R = surfacePoint(s, py, 0).R;
-    stick(obj, s, py, arc / Math.max(R, 0.05), 0.004);
+    const y = py + worldDy / s.sy;
+    stick(obj, s, y, arc / Math.max(surfacePoint(s, y, 0).R, 0.05), lift);
     pose.add(obj);
   };
+
+  const gap = (r.eyes === 'ring' ? 0.074 : 0.1) * size;
   for (const side of [-1, 1]) {
-    place(faceY + 0.04, side * 0.1, makeEye(r.eyes, ink));
-    if (r.cheeks) place(faceY - 0.015, side * 0.19, cheek());
+    place(0, side * gap, makeEye(r.eyes, ink, size, R), r.eyes === 'ring' ? 0.003 : 0.004);
+    if (r.cheeks) place(-0.05 * size, side * (gap + 0.07 * size), cheek());
   }
-  place(faceY - 0.045, 0, makeMouth(r.mouth, ink));
+  place(-0.075 * size, 0, makeMouth(r.mouth, ink, size, R), 0.003);
 }
 
 /** Half a ring: ∩ (or ∪ when `down`). */
@@ -208,8 +177,18 @@ function dot(radius: number, mat: THREE.Material) {
   return m;
 }
 
-function makeEye(kind: Eyes, ink: THREE.Material): THREE.Object3D {
+function makeEye(kind: Eyes, ink: THREE.Material, size: number, R: number): THREE.Object3D {
   const g = new THREE.Group();
+  if (kind === 'ring') {
+    // Arhoj's printed eyes: white disc, black outline, black pupil.
+    const black = glaze(INK, { roughness: 0.2 });
+    const white = new THREE.Mesh(bend(new THREE.CircleGeometry(0.055 * size, 40), R), glaze(WHITE, { roughness: 0.2 }));
+    const ring = new THREE.Mesh(bend(new THREE.RingGeometry(0.051 * size, 0.062 * size, 48), R), black);
+    const pupil = new THREE.Mesh(bend(new THREE.CircleGeometry(0.024 * size, 32), R), black);
+    ring.position.z = pupil.position.z = 0.0015;
+    g.add(white, ring, pupil);
+    return g;
+  }
   if (kind === 'dots') g.add(dot(0.04, ink));
   if (kind === 'wide') {
     const shine = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 8), glaze(WHITE));
@@ -222,27 +201,35 @@ function makeEye(kind: Eyes, ink: THREE.Material): THREE.Object3D {
     line.rotation.z = Math.PI / 2;
     g.add(line);
   }
+  g.scale.setScalar(size);
   return g;
 }
 
-function makeMouth(kind: Mouth, ink: THREE.Material): THREE.Object3D | null {
-  // Wrapped in a group: stick() sets the outer transform, so the arc keeps its own flip.
-  if (kind === 'smile') return new THREE.Group().add(arc(0.03, 0.01, ink, true));
+function makeMouth(kind: Mouth, ink: THREE.Material, size: number, R: number): THREE.Object3D | null {
+  if (kind === 'none') return null;
+  // Wrapped in an outer group: stick() sets the outer transform, so inner flips and scales survive.
+  const inner = new THREE.Group();
+  if (kind === 'red') {
+    // A tiny open mouth: half a disc, flat side up.
+    const m = new THREE.Mesh(bend(new THREE.CircleGeometry(0.026 * size, 24, Math.PI, Math.PI), R), glaze(MOUTH_RED));
+    m.position.y = 0.012 * size;
+    return inner.add(m);
+  }
+  if (kind === 'smile') inner.add(arc(0.03, 0.01, ink, true));
   if (kind === 'o') {
     const m = dot(0.022, ink);
     m.scale.y = 1.2;
-    return m;
+    inner.add(m);
   }
   if (kind === 'cat') {
-    const g = new THREE.Group();
     for (const side of [-1, 1]) {
       const a = arc(0.02, 0.009, ink, true);
       a.position.x = side * 0.02;
-      g.add(a);
+      inner.add(a);
     }
-    return g;
   }
-  return null;
+  inner.scale.setScalar(size);
+  return new THREE.Group().add(inner);
 }
 
 function cheek() {
