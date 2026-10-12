@@ -1,0 +1,128 @@
+:root {
+  --paper: #f3ece1;
+  --ink: #2b2420;
+  --muted: #7a6e64;
+  --line: rgba(43, 36, 32, 0.14);
+  --card: rgba(255, 251, 245, 0.94);
+  --shadow: 0 6px 24px rgba(80, 60, 40, 0.12);
+  font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, sans-serif;
+  color: var(--ink);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+#app { position: fixed; inset: 0; }
+.stage { position: absolute; inset: 0; }
+.stage canvas { display: block; touch-action: none; }
+
+/* UI floats over the canvas; only actual controls catch the mouse. */
+.ui, .layer, .bubble-layer { position: absolute; inset: 0; pointer-events: none; }
+.layer > *:not(.bubble-layer), .tabs { pointer-events: auto; }
+
+.tabs {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--card);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+.tabs button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.tabs button.on { background: var(--ink); color: #fff8ef; }
+
+.btn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 9px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: #fffaf2;
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--ink); }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: #fff8ef; }
+.icon-btn { font-size: 20px; background: none; border: 0; cursor: pointer; }
+.muted { color: var(--muted); font-size: 14px; margin: 2px 0; }
+
+.bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 4px 9px;
+  font-size: 20px;
+  line-height: 1.2;
+  background: #fffaf2;
+  border-radius: 16px;
+  box-shadow: 0 3px 10px rgba(80, 60, 40, 0.18);
+  animation: pop 0.25s ease-out;
+  transition: opacity 0.3s;
+  white-space: nowrap;
+}
+.bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 2px;
+}
+.bubble.fade { opacity: 0; }
+@keyframes pop {
+  from { opacity: 0; scale: 0.5; }
+  to { opacity: 1; scale: 1; }
+}
+
+.card, .empty {
+  position: absolute;
+  background: var(--card);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+}
+.card { left: 16px; bottom: 16px; min-width: 220px; }
+.card-name { font-size: 22px; font-weight: 700; }
+.card-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+.empty {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.empty h2 { margin: 0; }
+
+.plaza-tools { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 8px; }
+
+@media (max-width: 760px) {
+  .card { left: 12px; right: 12px; bottom: 72px; }
+  .plaza-tools { right: 12px; bottom: 12px; }
+}
