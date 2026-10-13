@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { Body, CharacterRecipe, Eyes, Mouth } from './recipe';
-import { BLUSH, CREAM, INK, MOUTH_RED, WHITE } from './palette';
+import type { Body, CharacterRecipe, Eyes } from './recipe';
+import { CREAM, INK, MOUTH_RED, WHITE } from './palette';
 import { glaze } from '../scene/stage';
 import { hashString, mulberry32 } from '../util/random';
 import { colourAt, glazeMaterial } from './glaze';
@@ -146,7 +146,7 @@ function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface): Look {
   const size = r.eyeSize;
   const R = surfacePoint(s, py, 0).R;
 
-  // Line-only eyes and painted mouths switch to cream on dark glazes; open eyes bring their own white.
+  // Line-only eyes switch to cream on dark glazes; open eyes bring their own white.
   const dark = new THREE.Color(colourAt(r, v)).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
   const ink = decal(dark ? CREAM : INK);
 
@@ -165,10 +165,9 @@ function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface): Look {
   const eyes = [-1, 1].map((side) => {
     const eye = makeEye(r.eyes, side, size, R, ink);
     placeAt(0, (side * apart) / 2, eye.object, 0.003);
-    if (r.cheeks) placeAt(-0.05 * size, side * (apart / 2 + (0.07 * size) / radiusAt(-0.05 * size)), cheek());
     return eye;
   });
-  placeAt(-0.085 * size, 0, makeMouth(r.mouth, ink, size, radiusAt(-0.085 * size)), 0.003);
+  if (r.mouth === 'red') placeAt(-0.085 * size, 0, tinyMouth(size, radiusAt(-0.085 * size)), 0.003);
   return (x, y) => eyes.forEach((e) => e.look(x, y));
 }
 
@@ -183,20 +182,6 @@ const EYE_WHITE = 0.052; // radius of the white, at eye size 1
 const EYE_LINE = 0.0068; // outline thickness
 const EYE_OUTER = EYE_WHITE + EYE_LINE;
 const PUPIL = 0.024;
-
-/** Half a ring: ∩ (or ∪ when `down`). */
-function arc(radius: number, tube: number, mat: THREE.Material, down: boolean) {
-  const m = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 8, 24, Math.PI), mat);
-  if (down) m.rotation.z = Math.PI;
-  m.position.y = down ? radius * 0.5 : -radius * 0.5;
-  return m;
-}
-
-function dot(radius: number, mat: THREE.Material) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 14), mat);
-  m.scale.z = 0.45;
-  return m;
-}
 
 /**
  * Arhoj-style printed eyes: flat decals curved to the body.
@@ -275,38 +260,12 @@ function makeEye(kind: Eyes, side: number, size: number, R: number, ink: THREE.M
   return { object: g, look };
 }
 
-function makeMouth(kind: Mouth, ink: THREE.Material, size: number, R: number): THREE.Object3D | null {
-  if (kind === 'none') return null;
-  // Wrapped in an outer group: stick() sets the outer transform, so inner flips and scales survive.
-  const inner = new THREE.Group();
-  if (kind === 'red') {
-    // A tiny open mouth: half a disc, flat side up.
-    const m = new THREE.Mesh(bend(new THREE.CircleGeometry(0.026 * size, 24, Math.PI, Math.PI), R), glaze(MOUTH_RED));
-    m.position.y = 0.012 * size;
-    m.userData.decal = true;
-    return inner.add(m);
-  }
-  if (kind === 'smile') inner.add(arc(0.03, 0.01, ink, true));
-  if (kind === 'o') {
-    const m = dot(0.022, ink);
-    m.scale.y = 1.2;
-    inner.add(m);
-  }
-  if (kind === 'cat') {
-    for (const side of [-1, 1]) {
-      const a = arc(0.02, 0.009, ink, true);
-      a.position.x = side * 0.02;
-      inner.add(a);
-    }
-  }
-  inner.scale.setScalar(size);
-  return new THREE.Group().add(inner);
-}
-
-function cheek() {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 12), glaze(BLUSH, { roughness: 0.6, clearcoat: 0.3 }));
-  m.scale.set(1.3, 0.8, 0.3);
-  return m;
+/** The occasional tiny red mouth: half a disc, flat side up. */
+function tinyMouth(size: number, R: number) {
+  const m = new THREE.Mesh(bend(new THREE.CircleGeometry(0.026 * size, 24, Math.PI, Math.PI), R), decal(MOUTH_RED));
+  m.position.y = 0.012 * size;
+  m.userData.decal = true;
+  return new THREE.Group().add(m);
 }
 
 // ---------- toppers ----------

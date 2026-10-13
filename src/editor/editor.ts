@@ -20,7 +20,7 @@ const LABELS: Record<string, string> = {
   clean: 'Clean', wavy: 'Wavy', drips: 'Drips', fade: 'Fade',
   none: 'None', cap: 'Beret', spots: 'Spots', leaf: 'Sprout', 'tiny-hat': 'Top hat',
   dots: 'Dots', open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed',
-  red: 'Tiny red', smile: 'Smile', o: 'Ooh', cat: 'Cat',
+  red: 'Tiny red',
   calm: '🍵 Calm', curious: '🔍 Curious', shy: '🌱 Shy', bouncy: '🎵 Bouncy',
 };
 
@@ -155,8 +155,6 @@ export class Editor implements Mode {
     const nameRow = el('div', 'name-row');
     nameRow.append(name, dice);
 
-    const blush = button('Blush', 'chip', () => this.set('cheeks', !this.recipe.cheeks));
-    this.syncers.push(() => blush.classList.toggle('on', this.recipe.cheeks));
     this.syncers.push(() => this.renderLayers());
 
     const actions = el('div', 'actions');
@@ -183,7 +181,7 @@ export class Editor implements Mode {
         this.slider('eyeSize', 'Size', EYE_SIZE),
         this.slider('eyeSpacing', 'Apart', EYE_SPACING),
       ),
-      section('Mouth', this.chips('mouth', MOUTHS), blush),
+      section('Mouth', this.chips('mouth', MOUTHS)),
       section('Personality', this.chips('personality', PERSONALITIES)),
       actions,
       section('Your characters', this.savedList),

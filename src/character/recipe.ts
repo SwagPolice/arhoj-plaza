@@ -7,7 +7,7 @@ export const PATTERNS = ['plain', 'speckle', 'dots', 'streaks'] as const;
 export const EDGES = ['clean', 'wavy', 'drips', 'fade'] as const;
 export const TOPPERS = ['none', 'cap', 'spots', 'leaf', 'tiny-hat'] as const;
 export const EYES = ['open', 'tired', 'sleepy', 'happy', 'crossed'] as const;
-export const MOUTHS = ['none', 'red', 'smile', 'o', 'cat'] as const;
+export const MOUTHS = ['none', 'red'] as const;
 export const PERSONALITIES = ['calm', 'curious', 'shy', 'bouncy'] as const;
 
 export type Body = (typeof BODIES)[number];
@@ -57,7 +57,6 @@ export type CharacterRecipe = {
   eyeSize: number;
   eyeSpacing: number;
   mouth: Mouth;
-  cheeks: boolean;
   personality: Personality;
 };
 
@@ -95,7 +94,6 @@ export function defaultRecipe(): CharacterRecipe {
     eyeSize: 1,
     eyeSpacing: 0.15,
     mouth: 'none',
-    cheeks: false,
     personality: 'calm',
   };
 }
@@ -141,8 +139,7 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
     eyeHeight: round2(between(0.1, 0.95)),
     eyeSize: round2(between(0.8, 1.3)),
     eyeSpacing: round2(between(0, 0.5)),
-    mouth: weighted<Mouth>([['none', 70], ['red', 15], ['smile', 5], ['o', 5], ['cat', 5]]),
-    cheeks: Math.random() < 0.2,
+    mouth: weighted<Mouth>([['none', 85], ['red', 15]]),
     personality: pick(PERSONALITIES),
   };
 }
@@ -201,8 +198,7 @@ export function normaliseRecipe(raw: unknown): CharacterRecipe {
     eyeHeight: num(o.eyeHeight, EYE_HEIGHT, d.eyeHeight),
     eyeSize: num(o.eyeSize, EYE_SIZE, d.eyeSize),
     eyeSpacing: num(o.eyeSpacing, EYE_SPACING, d.eyeSpacing),
-    mouth: oneOf(MOUTHS, o.mouth, d.mouth),
-    cheeks: typeof o.cheeks === 'boolean' ? o.cheeks : d.cheeks,
+    mouth: oneOf(MOUTHS, o.mouth, d.mouth), // older cartoon mouths become 'none'
     personality: oneOf(PERSONALITIES, o.personality, d.personality),
   };
 }

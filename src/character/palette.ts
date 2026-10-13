@@ -32,7 +32,6 @@ export const METALS: Swatch[] = [
 
 export const CLAY = '#d9bd94'; // unglazed stoneware
 export const INK = '#1f1b19'; // face details
-export const BLUSH = '#f39e98';
 export const CREAM = '#f6efe2';
 export const WHITE = '#fffdf8';
 export const MOUTH_RED = '#d8382f';
