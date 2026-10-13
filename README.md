@@ -1,5 +1,7 @@
 # Arhoj Plaza
 
+*A fan project, not affiliated with Studio Arhoj.*
+
 A tiny Mii-Plaza-style toy: make little ceramic characters (inspired by Studio Arhoj's cones, mushrooms and ghosts), then watch them potter around an island.
 
 ## Run it
@@ -43,3 +45,8 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/scene/island.ts` | The island, pond, trees |
 | `src/share.ts` | Share codes and links |
 | `tests/` | Checks that old share codes and saves still load |
+
+## Publishing
+
+The game is a static site. Every push to `main` runs `.github/workflows/deploy.yml`, which builds it (type-check
+and tests included) and publishes `dist/` to GitHub Pages. A failing test stops the deploy.

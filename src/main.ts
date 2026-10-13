@@ -46,7 +46,7 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     plaza: button('🏝️ Plaza', '', () => go('plaza')),
   };
   tabs.append(tabButtons.make, tabButtons.plaza);
-  ui.append(tabs);
+  ui.append(tabs, el('div', 'fan-note', 'Fan project · not affiliated with Studio Arhoj'));
 
   function go(name: ModeName) {
     const next = byName[name];
@@ -71,9 +71,10 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
 
   // Share links look like …#import=arhoj1.xxxx and open the character in the maker, unsaved.
   async function openShareLink() {
+    const link = location.hash; // read it first: go() rewrites the address to #make
     go('make');
     try {
-      const { recipe, fromNewer } = await decodeCharacter(location.hash);
+      const { recipe, fromNewer } = await decodeCharacter(link);
       editor.importRecipe(recipe, fromNewer);
     } catch (e) {
       editor.toast(e instanceof ShareError ? e.message : 'That share link could not be read.');
