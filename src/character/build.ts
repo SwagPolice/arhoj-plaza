@@ -27,6 +27,7 @@ export type BuiltCharacter = {
   pose: THREE.Group; // squashed, hopped and tilted by animation
   height: number;
   radius: number;
+  look: Look; // move the pupils, for glances and expressions
 };
 
 export function sampleProfile(pts: Pt[], divisions = 64): THREE.Vector2[] {
@@ -124,18 +125,19 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
     radius = Math.max(radius, maxR(cap.pts) * sx);
   }
 
-  addFace(pose, r, bodySurface);
+  const look = addFace(pose, r, bodySurface);
   addTopper(pose, r, topSurface, top, rand);
 
   pose.traverse((o) => {
-    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true;
+    // Decals sit a hair above the glaze; shadows at that distance just smudge them.
+    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = !o.userData.decal;
   });
-  return { root, pose, height: top, radius };
+  return { root, pose, height: top, radius, look };
 }
 
 // ---------- face ----------
 
-function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface) {
+function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface): Look {
   const top = maxY(s.pts);
   const hi = EYE_TOP[r.body];
   const lo = Math.min(hi, r.clayHeight + 0.06);
@@ -144,24 +146,43 @@ function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface) {
   const size = r.eyeSize;
   const R = surfacePoint(s, py, 0).R;
 
-  // Painted-style faces switch to cream on dark glazes; decal eyes bring their own white.
+  // Line-only eyes and painted mouths switch to cream on dark glazes; open eyes bring their own white.
   const dark = new THREE.Color(colourAt(r, v)).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
-  const ink = glaze(dark && r.eyes !== 'ring' ? CREAM : INK, { roughness: 0.25 });
+  const ink = decal(dark ? CREAM : INK);
 
-  const place = (worldDy: number, arc: number, obj: THREE.Object3D | null, lift = 0.004) => {
+  const placeAt = (worldDy: number, angle: number, obj: THREE.Object3D | null, lift = 0.004) => {
     if (!obj) return;
-    const y = py + worldDy / s.sy;
-    stick(obj, s, y, arc / Math.max(surfacePoint(s, y, 0).R, 0.05), lift);
+    stick(obj, s, py + worldDy / s.sy, angle, lift);
     pose.add(obj);
   };
+  const radiusAt = (worldDy: number) => Math.max(surfacePoint(s, py + worldDy / s.sy, 0).R, 0.05);
 
-  const gap = (r.eyes === 'ring' ? 0.074 : 0.1) * size;
-  for (const side of [-1, 1]) {
-    place(0, side * gap, makeEye(r.eyes, ink, size, R), r.eyes === 'ring' ? 0.003 : 0.004);
-    if (r.cheeks) place(-0.05 * size, side * (gap + 0.07 * size), cheek());
-  }
-  place(-0.075 * size, 0, makeMouth(r.mouth, ink, size, R), 0.003);
+  // Angle between the two eyes: from just touching up to 45°.
+  // On a very narrow spot, touching wins over the 45° limit so the eyes never overlap.
+  const touching = (2 * EYE_OUTER * size) / Math.max(R, 0.05);
+  const apart = Math.max(touching, touching + r.eyeSpacing * (MAX_EYE_ANGLE - touching));
+
+  const eyes = [-1, 1].map((side) => {
+    const eye = makeEye(r.eyes, side, size, R, ink);
+    placeAt(0, (side * apart) / 2, eye.object, 0.003);
+    if (r.cheeks) placeAt(-0.05 * size, side * (apart / 2 + (0.07 * size) / radiusAt(-0.05 * size)), cheek());
+    return eye;
+  });
+  placeAt(-0.085 * size, 0, makeMouth(r.mouth, ink, size, radiusAt(-0.085 * size)), 0.003);
+  return (x, y) => eyes.forEach((e) => e.look(x, y));
 }
+
+/** Point the pupils: x and y from -1 to 1 (right/up positive, in the character's own frame). */
+export type Look = (x: number, y: number) => void;
+
+const MAX_EYE_ANGLE = Math.PI / 4;
+
+/** Printed-on details: fully matte, so the ink stays black instead of mirroring the light. */
+const decal = (color: string) => new THREE.MeshLambertMaterial({ color });
+const EYE_WHITE = 0.052; // radius of the white, at eye size 1
+const EYE_LINE = 0.0068; // outline thickness
+const EYE_OUTER = EYE_WHITE + EYE_LINE;
+const PUPIL = 0.024;
 
 /** Half a ring: ∩ (or ∪ when `down`). */
 function arc(radius: number, tube: number, mat: THREE.Material, down: boolean) {
@@ -177,32 +198,81 @@ function dot(radius: number, mat: THREE.Material) {
   return m;
 }
 
-function makeEye(kind: Eyes, ink: THREE.Material, size: number, R: number): THREE.Object3D {
+/**
+ * Arhoj-style printed eyes: flat decals curved to the body.
+ * `side` is -1 for the eye on the character's right, 1 for its left.
+ */
+function makeEye(kind: Eyes, side: number, size: number, R: number, ink: THREE.Material): { object: THREE.Group; look: Look } {
   const g = new THREE.Group();
-  if (kind === 'ring') {
-    // Arhoj's printed eyes: white disc, black outline, black pupil.
-    const black = glaze(INK, { roughness: 0.2 });
-    const white = new THREE.Mesh(bend(new THREE.CircleGeometry(0.055 * size, 40), R), glaze(WHITE, { roughness: 0.2 }));
-    const ring = new THREE.Mesh(bend(new THREE.RingGeometry(0.051 * size, 0.062 * size, 48), R), black);
-    const pupil = new THREE.Mesh(bend(new THREE.CircleGeometry(0.024 * size, 32), R), black);
-    ring.position.z = pupil.position.z = 0.0015;
-    g.add(white, ring, pupil);
-    return g;
+  // How far the body surface curves away at x, so things moved sideways stay on it.
+  const curveZ = (x: number) => -(R - Math.sqrt(Math.max(R * R - x * x, 0)));
+  const flat = (geo: THREE.BufferGeometry, mat: THREE.Material, z: number, parent: THREE.Object3D = g) => {
+    const m = new THREE.Mesh(bend(geo, R), mat);
+    m.position.z = z;
+    m.userData.decal = true;
+    parent.add(m);
+    return m;
+  };
+
+  if (kind === 'sleepy' || kind === 'happy') {
+    // Just a thin line: ∪ when sleeping, ∩ when happy.
+    const inner = new THREE.Group();
+    const rad = 0.04 * size;
+    const t = EYE_LINE * 1.1 * size;
+    const start = kind === 'sleepy' ? Math.PI : 0;
+    flat(new THREE.RingGeometry(rad - t / 2, rad + t / 2, 40, 1, start, Math.PI), ink, 0, inner);
+    for (const a of [start, start + Math.PI]) {
+      const x = Math.cos(a) * rad;
+      flat(new THREE.CircleGeometry(t / 2, 12), ink, 0, inner).position.set(x, Math.sin(a) * rad, curveZ(x));
+    }
+    inner.position.y = kind === 'sleepy' ? rad * 0.45 : -rad * 0.45;
+    g.add(inner);
+    return { object: g, look: () => {} };
   }
-  if (kind === 'dots') g.add(dot(0.04, ink));
-  if (kind === 'wide') {
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 8), glaze(WHITE));
-    shine.position.set(0.018, 0.02, 0.026);
-    g.add(dot(0.058, ink), shine);
+
+  const black = decal(INK);
+  const white = decal(WHITE);
+  const rIn = EYE_WHITE * size;
+  flat(new THREE.CircleGeometry(rIn + 0.001, 48), white, 0);
+  // The pupil is re-curved every time it moves, so it hugs the body wherever it slides to.
+  const pupilGeo = new THREE.CircleGeometry(PUPIL * size, 32);
+  const pupilX = Array.from({ length: pupilGeo.attributes.position.count }, (_, i) => pupilGeo.attributes.position.getX(i));
+  const pupil = new THREE.Mesh(pupilGeo, black);
+  pupil.userData.decal = true;
+  g.add(pupil);
+  flat(new THREE.RingGeometry(rIn, rIn + EYE_LINE * size, 64), black, 0.0024);
+
+  if (kind === 'tired') {
+    // A heavy eyelid: white cap over the top of the eye with a straight line under it.
+    const h = 0.006 * size;
+    const a0 = Math.asin(h / rIn);
+    const lidShape = new THREE.Shape();
+    lidShape.absarc(0, 0, rIn + 0.001, a0, Math.PI - a0, false);
+    lidShape.closePath();
+    const lid = new THREE.Group();
+    flat(new THREE.ShapeGeometry(lidShape, 24), white, 0.0018, lid);
+    const half = Math.sqrt(rIn * rIn - h * h);
+    flat(new THREE.PlaneGeometry(2 * half, EYE_LINE * size, 16, 1), black, 0.0024, lid).position.y = h;
+    lid.rotation.z = -side * 0.08; // droops a little towards the outside
+    g.add(lid);
   }
-  if (kind === 'closed') g.add(arc(0.036, 0.011, ink, false));
-  if (kind === 'sleepy') {
-    const line = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.055, 4, 8), ink);
-    line.rotation.z = Math.PI / 2;
-    g.add(line);
-  }
-  g.scale.setScalar(size);
-  return g;
+
+  const reach = rIn - PUPIL * size - 0.004 * size;
+  const look: Look = (x, y) => {
+    let gx = x;
+    let gy = y;
+    if (kind === 'crossed') [gx, gy] = [-side * 0.9, 0]; // always looking at their own nose
+    if (kind === 'tired') gy = -0.35; // pupils stay tucked under the lid
+    const len = Math.hypot(gx, gy);
+    if (len > 1) [gx, gy] = [gx / len, gy / len];
+    const px = gx * reach;
+    pupil.position.set(px, gy * reach, 0.0012);
+    const pos = pupilGeo.attributes.position;
+    pupilX.forEach((x, i) => pos.setZ(i, curveZ(px + x)));
+    pos.needsUpdate = true;
+  };
+  look(0, 0);
+  return { object: g, look };
 }
 
 function makeMouth(kind: Mouth, ink: THREE.Material, size: number, R: number): THREE.Object3D | null {
@@ -213,6 +283,7 @@ function makeMouth(kind: Mouth, ink: THREE.Material, size: number, R: number): T
     // A tiny open mouth: half a disc, flat side up.
     const m = new THREE.Mesh(bend(new THREE.CircleGeometry(0.026 * size, 24, Math.PI, Math.PI), R), glaze(MOUTH_RED));
     m.position.y = 0.012 * size;
+    m.userData.decal = true;
     return inner.add(m);
   }
   if (kind === 'smile') inner.add(arc(0.03, 0.01, ink, true));

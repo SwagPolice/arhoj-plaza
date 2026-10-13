@@ -34,6 +34,11 @@ export class Agent {
   partner: Agent | null = null;
   seed = Math.random() * 100;
   pos = new THREE.Vector2();
+  gaze = new THREE.Vector2(); // where the pupils point right now (eased)
+  glance = new THREE.Vector2(); // a random idle glance
+  glanceTimer = Math.random() * 3;
+  focus = 0; // seconds left looking up at the player
+  awaySide = 1; // which way a shy one looks while chatting
 
   constructor(public recipe: CharacterRecipe, public built: BuiltCharacter) {}
 
@@ -50,6 +55,7 @@ export class Agent {
     this.partner = null;
     this.timer = seconds;
     this.heading = Math.atan2(x - this.pos.x, z - this.pos.y);
+    this.focus = seconds;
   }
 }
 
@@ -72,7 +78,10 @@ export function stepAgents(agents: Agent[], world: World, dt: number, t: number,
   for (const a of agents) think(a, agents, world, dt, emit);
   separate(agents, world);
   meet(agents, dt, emit);
-  for (const a of agents) animate(a, dt, t);
+  for (const a of agents) {
+    animate(a, dt, t);
+    lookAround(a, agents, dt);
+  }
 }
 
 function think(a: Agent, agents: Agent[], world: World, dt: number, emit: Emit) {
@@ -181,6 +190,7 @@ function meet(agents: Agent[], dt: number, emit: Emit) {
         x.state = 'chat';
         x.partner = y;
         x.timer = time;
+        x.awaySide = Math.random() < 0.5 ? -1 : 1;
       }
       const [sa, sb] = greeting(a, b);
       emit(a, sa);
@@ -233,4 +243,41 @@ function animate(a: Agent, dt: number, t: number) {
   p.scale.set(1 + squash * 0.5, 1 - squash, 1 + squash * 0.5);
   a.built.root.position.set(a.pos.x, 0, a.pos.y);
   a.built.root.rotation.y = a.heading;
+}
+
+/** Eye expressions: side glances at passers-by, shy looks away, bouncy looks up. */
+function lookAround(a: Agent, agents: Agent[], dt: number) {
+  const target = new THREE.Vector2();
+  const p = a.recipe.personality;
+  if (a.focus > 0) {
+    a.focus -= dt;
+    target.set(0, 0.5); // the camera is above them
+  } else if (a.state === 'chat') {
+    if (p === 'shy') target.set(a.awaySide, -0.5);
+    else if (p === 'bouncy') target.set(0, 0.7);
+  } else if (a.state === 'idle') {
+    // Watch whoever is close by, without turning around.
+    let nearest: Agent | null = null;
+    let best = 3.5;
+    for (const o of agents) {
+      const d = o === a ? Infinity : o.pos.distanceTo(a.pos);
+      if (d < best) [nearest, best] = [o, d];
+    }
+    const rel = nearest ? Math.atan2(nearest.pos.x - a.pos.x, nearest.pos.y - a.pos.y) - a.heading : 0;
+    if (nearest && Math.cos(rel) > -0.2) {
+      target.set(Math.max(-1, Math.min(1, Math.sin(rel) * 1.5)), 0);
+      if (p === 'shy') target.y = -0.4;
+    } else {
+      a.glanceTimer -= dt;
+      if (a.glanceTimer <= 0) {
+        const curious = p === 'curious' ? 0.7 : 0.35;
+        if (Math.random() < curious) a.glance.set(Math.random() < 0.5 ? -1 : 1, between(-0.3, 0.5));
+        else a.glance.set(0, 0);
+        a.glanceTimer = between(1.5, 4);
+      }
+      target.copy(a.glance);
+    }
+  }
+  a.gaze.lerp(target, Math.min(1, dt * 8));
+  a.built.look(a.gaze.x, a.gaze.y);
 }

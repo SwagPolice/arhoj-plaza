@@ -5,7 +5,7 @@ import type { Mode } from '../mode';
 import { addLights, glaze, PAPER } from '../scene/stage';
 import { buildCharacter, disposeObject, type BuiltCharacter } from '../character/build';
 import {
-  BODIES, CLAY_HEIGHT, EDGES, EYE_HEIGHT, EYE_SIZE, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
+  BODIES, CLAY_HEIGHT, EDGES, EYE_HEIGHT, EYE_SIZE, EYE_SPACING, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
   PERSONALITIES, REACH, TOPPERS, WIDTH,
   defaultRecipe, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type GlazeLayer,
 } from '../character/recipe';
@@ -18,9 +18,8 @@ const LABELS: Record<string, string> = {
   glossy: 'Glossy', satin: 'Satin', metallic: 'Metallic',
   plain: 'Plain', speckle: 'Speckle', streaks: 'Streaks',
   clean: 'Clean', wavy: 'Wavy', drips: 'Drips', fade: 'Fade',
-  ring: 'Arhoj',
   none: 'None', cap: 'Beret', spots: 'Spots', leaf: 'Sprout', 'tiny-hat': 'Top hat',
-  dots: 'Dots', wide: 'Big', closed: 'Happy', sleepy: 'Sleepy',
+  dots: 'Dots', open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed',
   red: 'Tiny red', smile: 'Smile', o: 'Ooh', cat: 'Cat',
   calm: '🍵 Calm', curious: '🔍 Curious', shy: '🌱 Shy', bouncy: '🎵 Bouncy',
 };
@@ -182,6 +181,7 @@ export class Editor implements Mode {
         this.chips('eyes', EYES),
         this.slider('eyeHeight', 'Height', EYE_HEIGHT),
         this.slider('eyeSize', 'Size', EYE_SIZE),
+        this.slider('eyeSpacing', 'Apart', EYE_SPACING),
       ),
       section('Mouth', this.chips('mouth', MOUTHS), blush),
       section('Personality', this.chips('personality', PERSONALITIES)),
@@ -213,7 +213,7 @@ export class Editor implements Mode {
   }
 
   private slider(
-    key: 'height' | 'width' | 'clayHeight' | 'eyeHeight' | 'eyeSize',
+    key: 'height' | 'width' | 'clayHeight' | 'eyeHeight' | 'eyeSize' | 'eyeSpacing',
     label: string,
     range: { min: number; max: number },
   ) {

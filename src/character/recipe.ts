@@ -6,7 +6,7 @@ export const FINISHES = ['glossy', 'satin', 'metallic'] as const;
 export const PATTERNS = ['plain', 'speckle', 'dots', 'streaks'] as const;
 export const EDGES = ['clean', 'wavy', 'drips', 'fade'] as const;
 export const TOPPERS = ['none', 'cap', 'spots', 'leaf', 'tiny-hat'] as const;
-export const EYES = ['ring', 'dots', 'wide', 'closed', 'sleepy'] as const;
+export const EYES = ['open', 'tired', 'sleepy', 'happy', 'crossed'] as const;
 export const MOUTHS = ['none', 'red', 'smile', 'o', 'cat'] as const;
 export const PERSONALITIES = ['calm', 'curious', 'shy', 'bouncy'] as const;
 
@@ -25,6 +25,7 @@ export const CLAY_HEIGHT = { min: 0.04, max: 0.4 };
 export const REACH = { min: 0.1, max: 1 };
 export const EYE_HEIGHT = { min: 0, max: 1 };
 export const EYE_SIZE = { min: 0.7, max: 1.5 };
+export const EYE_SPACING = { min: 0, max: 1 }; // 0 = touching, 1 = 45° apart
 export const MAX_LAYERS = 3;
 
 /**
@@ -54,6 +55,7 @@ export type CharacterRecipe = {
   eyes: Eyes;
   eyeHeight: number;
   eyeSize: number;
+  eyeSpacing: number;
   mouth: Mouth;
   cheeks: boolean;
   personality: Personality;
@@ -88,9 +90,10 @@ export function defaultRecipe(): CharacterRecipe {
     layers: [defaultLayer()],
     topper: 'none',
     topperColour: '#ec8a6a',
-    eyes: 'ring',
+    eyes: 'open',
     eyeHeight: 0.55,
     eyeSize: 1,
+    eyeSpacing: 0.15,
     mouth: 'none',
     cheeks: false,
     personality: 'calm',
@@ -134,9 +137,10 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
     layers,
     topper: weighted<Topper>([['none', 70], ['cap', 8], ['spots', 8], ['leaf', 7], ['tiny-hat', 7]]),
     topperColour: pick(GLAZES).hex,
-    eyes: weighted<Eyes>([['ring', 70], ['dots', 10], ['wide', 10], ['closed', 5], ['sleepy', 5]]),
+    eyes: weighted<Eyes>([['open', 55], ['tired', 15], ['sleepy', 10], ['happy', 10], ['crossed', 10]]),
     eyeHeight: round2(between(0.1, 0.95)),
     eyeSize: round2(between(0.8, 1.3)),
+    eyeSpacing: round2(between(0, 0.5)),
     mouth: weighted<Mouth>([['none', 70], ['red', 15], ['smile', 5], ['o', 5], ['cat', 5]]),
     cheeks: Math.random() < 0.2,
     personality: pick(PERSONALITIES),
@@ -166,6 +170,9 @@ function normaliseLayer(raw: unknown): GlazeLayer {
   };
 }
 
+// Eye styles from earlier versions, mapped to their closest Arhoj-style replacement.
+const OLD_EYES: Record<string, Eyes> = { ring: 'open', dots: 'open', wide: 'open', closed: 'happy' };
+
 /** Turn anything loaded from storage into a valid recipe, filling gaps with defaults. */
 export function normaliseRecipe(raw: unknown): CharacterRecipe {
   const d = defaultRecipe();
@@ -190,9 +197,10 @@ export function normaliseRecipe(raw: unknown): CharacterRecipe {
     layers,
     topper: oneOf(TOPPERS, o.topper, d.topper),
     topperColour: colour(o.topperColour, d.topperColour),
-    eyes: oneOf(EYES, o.eyes, d.eyes),
+    eyes: oneOf(EYES, OLD_EYES[String(o.eyes)] ?? o.eyes, d.eyes),
     eyeHeight: num(o.eyeHeight, EYE_HEIGHT, d.eyeHeight),
     eyeSize: num(o.eyeSize, EYE_SIZE, d.eyeSize),
+    eyeSpacing: num(o.eyeSpacing, EYE_SPACING, d.eyeSpacing),
     mouth: oneOf(MOUTHS, o.mouth, d.mouth),
     cheeks: typeof o.cheeks === 'boolean' ? o.cheeks : d.cheeks,
     personality: oneOf(PERSONALITIES, o.personality, d.personality),
