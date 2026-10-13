@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import type { Body, CharacterRecipe, Eyes } from './recipe';
+import { isGlass, type Body, type CharacterRecipe, type Eyes } from './recipe';
 import { CREAM, INK, MOUTH_RED, WHITE } from './palette';
-import { hashString } from '../util/random';
+import { hashString, mulberry32 } from '../util/random';
 import { colourAt, glazeMaterial } from './glaze';
+import { capMaterial, coreMaterial, shellMaterial } from './glass';
 
 export type Pt = [number, number];
 
@@ -14,10 +15,16 @@ const BODY_PROFILES: Record<Body, Pt[]> = {
   bell: [[0, 0], [0.27, 0], [0.54, 0], [0.57, 0.06], [0.5, 0.25], [0.44, 0.55], [0.4, 0.78], [0.3, 0.96], [0.14, 1.04], [0, 1.06]],
   bean: [[0, 0], [0.14, 0], [0.28, 0.01], [0.42, 0.08], [0.49, 0.3], [0.49, 0.6], [0.42, 0.86], [0.25, 1.0], [0, 1.04]],
   blob: [[0, 0], [0.28, 0], [0.56, 0], [0.57, 0.05], [0.47, 0.2], [0.44, 0.5], [0.42, 0.75], [0.33, 0.95], [0.17, 1.05], [0, 1.08]],
+  // Glass mushroom stem (the clear outer shell); the core and cap are below.
+  mushroom: [[0, 0], [0.18, 0], [0.3, 0.01], [0.345, 0.06], [0.355, 0.2], [0.335, 0.42], [0.3, 0.58], [0.27, 0.68], [0, 0.7]],
 };
+// Coloured core inside the stem, leaving a margin of clear glass all round.
+const MUSHROOM_CORE: Pt[] = [[0, 0.09], [0.14, 0.09], [0.21, 0.12], [0.23, 0.22], [0.225, 0.42], [0.195, 0.55], [0.16, 0.62], [0, 0.64]];
+const MUSHROOM_CAP: Pt[] = [[0, 0.6], [0.22, 0.59], [0.42, 0.6], [0.5, 0.63], [0.53, 0.69], [0.49, 0.8], [0.37, 0.9], [0.19, 0.965], [0, 0.98]];
 
 // Highest the eyes can go, as a fraction of body height.
-const EYE_TOP: Record<Body, number> = { ghost: 0.86, cone: 0.8, bell: 0.85, bean: 0.85, blob: 0.85 };
+// (Lower on mushrooms, so the cap doesn't hide them.)
+const EYE_TOP: Record<Body, number> = { ghost: 0.86, cone: 0.8, bell: 0.85, bean: 0.85, blob: 0.85, mushroom: 0.62 };
 
 export type BuiltCharacter = {
   root: THREE.Group; // placed in the world
@@ -102,19 +109,34 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
   const pose = new THREE.Group();
   root.add(pose);
 
+  const glass = isGlass(r);
   const body = latheFrom(BODY_PROFILES[r.body]);
-  const bodyMesh = new THREE.Mesh(body.geo, glazeMaterial(r, seed));
+  const bodyMesh = new THREE.Mesh(body.geo, glass ? shellMaterial() : glazeMaterial(r, seed));
   bodyMesh.scale.set(sx, sy, sx);
+  bodyMesh.userData.glass = glass;
   pose.add(bodyMesh);
   const bodySurface: Surface = { pts: body.pts, sx, sy };
 
-  const top = maxY(body.pts) * sy;
-  const radius = maxR(body.pts) * sx;
+  let top = maxY(body.pts) * sy;
+  let radius = maxR(body.pts) * sx;
+  if (glass) {
+    const core = new THREE.Mesh(latheFrom(MUSHROOM_CORE).geo, coreMaterial(r.glass, seed));
+    const cap = latheFrom(MUSHROOM_CAP);
+    const capMesh = new THREE.Mesh(cap.geo, capMaterial(r.glass, seed));
+    core.scale.copy(bodyMesh.scale);
+    capMesh.scale.copy(bodyMesh.scale);
+    pose.add(core, capMesh);
+    const capSurface: Surface = { pts: cap.pts, sx, sy };
+    if (r.glass.capPattern === 'dots') addCapDots(pose, capSurface, r.glass.capPatternColour, seed);
+    top = maxY(cap.pts) * sy;
+    radius = Math.max(radius, maxR(cap.pts) * sx);
+  }
   const look = addFace(pose, r, bodySurface);
 
   pose.traverse((o) => {
     // Decals sit a hair above the glaze; shadows at that distance just smudge them.
-    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = !o.userData.decal;
+    // Clear glass casts no solid shadow (its core and cap still do).
+    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = !o.userData.decal && !o.userData.glass;
   });
   return { root, pose, height: top, radius, look };
 }
@@ -124,14 +146,15 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
 function addFace(pose: THREE.Group, r: CharacterRecipe, s: Surface): Look {
   const top = maxY(s.pts);
   const hi = EYE_TOP[r.body];
-  const lo = Math.min(hi, r.clayHeight + 0.06);
+  const lo = Math.min(hi, (isGlass(r) ? 0 : r.clayHeight) + 0.06);
   const v = lo + r.eyeHeight * (hi - lo);
   const py = v * top;
   const size = r.eyeSize;
   const R = surfacePoint(s, py, 0).R;
 
   // Line-only eyes switch to cream on dark glazes; open eyes bring their own white.
-  const dark = new THREE.Color(colourAt(r, v)).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
+  const behind = isGlass(r) ? r.glass.core : colourAt(r, v);
+  const dark = new THREE.Color(behind).getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
   const ink = decal(dark ? CREAM : INK);
 
   const placeAt = (worldDy: number, angle: number, obj: THREE.Object3D | null, lift = 0.004) => {
@@ -160,8 +183,11 @@ export type Look = (x: number, y: number) => void;
 
 const MAX_EYE_ANGLE = Math.PI / 4;
 
-/** Printed-on details: fully matte, so the ink stays black instead of mirroring the light. */
-const decal = (color: string) => new THREE.MeshLambertMaterial({ color });
+/**
+ * Printed-on details: fully matte, so the ink stays black instead of mirroring the light.
+ * Marked transparent so they're drawn after glass, which would otherwise refract a ghostly copy of them.
+ */
+const decal = (color: string) => new THREE.MeshLambertMaterial({ color, transparent: true });
 const EYE_WHITE = 0.052; // radius of the white, at eye size 1
 const EYE_LINE = 0.0068; // outline thickness
 const EYE_OUTER = EYE_WHITE + EYE_LINE;
@@ -262,6 +288,24 @@ function tinyMouth(size: number, R: number) {
   m.position.y = 0.012 * size;
   m.userData.decal = true;
   return new THREE.Group().add(m);
+}
+
+/** Painted dots on a mushroom cap, like the orange one with blue spots. */
+function addCapDots(pose: THREE.Group, s: Surface, colour: string, seed: number) {
+  const rand = mulberry32(seed + 9);
+  const mat = decal(colour);
+  const placed: THREE.Vector3[] = [];
+  for (let tries = 0; tries < 80 && placed.length < 16; tries++) {
+    const py = 0.72 + rand() * 0.23; // stay off the curl of the rim
+    const angle = rand() * Math.PI * 2;
+    const size = 0.028 + rand() * 0.022;
+    const { pos, R } = surfacePoint(s, py, angle);
+    if (placed.some((p) => p.distanceTo(pos) < size * 2.6)) continue;
+    placed.push(pos);
+    const dot = new THREE.Mesh(bend(new THREE.CircleGeometry(size, 24), Math.max(R, 0.05)), mat);
+    dot.userData.decal = true;
+    pose.add(stick(dot, s, py, angle, 0.005));
+  }
 }
 
 export function disposeObject(obj: THREE.Object3D) {

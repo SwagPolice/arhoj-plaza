@@ -1,7 +1,9 @@
 import { GLAZES, METALS } from './palette';
 import { between, pick } from '../util/random';
 
-export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'blob'] as const;
+export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'blob', 'mushroom'] as const;
+export const CORE_FINISHES = ['solid', 'frosted'] as const;
+export const CAP_PATTERNS = ['plain', 'dots', 'glitter', 'confetti'] as const;
 export const FINISHES = ['glossy', 'satin', 'metallic'] as const;
 export const PATTERNS = ['plain', 'speckle', 'dots', 'streaks'] as const;
 export const EDGES = ['clean', 'wavy', 'drips', 'fade'] as const;
@@ -10,6 +12,8 @@ export const MOUTHS = ['none', 'red'] as const;
 export const PERSONALITIES = ['calm', 'curious', 'shy', 'bouncy'] as const;
 
 export type Body = (typeof BODIES)[number];
+export type CoreFinish = (typeof CORE_FINISHES)[number];
+export type CapPattern = (typeof CAP_PATTERNS)[number];
 export type Finish = (typeof FINISHES)[number];
 export type Pattern = (typeof PATTERNS)[number];
 export type Edge = (typeof EDGES)[number];
@@ -39,6 +43,17 @@ export type GlazeLayer = {
   reach: number;
 };
 
+/** Glass mushrooms: a clear stem with a coloured core, under a coloured glass cap. */
+export type Glass = {
+  core: string;
+  coreFinish: CoreFinish;
+  cap: string;
+  capPattern: CapPattern;
+  capPatternColour: string;
+};
+
+export const isGlass = (r: CharacterRecipe) => r.body === 'mushroom';
+
 /** Everything needed to rebuild a character. Small, plain JSON so it's easy to save and share. */
 export type CharacterRecipe = {
   id: string;
@@ -47,7 +62,8 @@ export type CharacterRecipe = {
   height: number;
   width: number;
   clayHeight: number;
-  layers: GlazeLayer[];
+  layers: GlazeLayer[]; // ceramic bodies
+  glass: Glass; // mushrooms
   eyes: Eyes;
   eyeHeight: number;
   eyeSize: number;
@@ -74,6 +90,20 @@ export function defaultLayer(colour = '#a9e0c8'): GlazeLayer {
   return { colour, finish: 'glossy', pattern: 'plain', patternColour: '#fffdf8', edge: 'clean', reach: 0.5 };
 }
 
+export function defaultGlass(): Glass {
+  return { core: '#f2b8ae', coreFinish: 'solid', cap: '#f08a24', capPattern: 'dots', capPatternColour: '#2f55b5' };
+}
+
+export function randomGlass(): Glass {
+  return {
+    core: pick(GLAZES).hex,
+    coreFinish: weighted<CoreFinish>([['solid', 70], ['frosted', 30]]),
+    cap: pick(GLAZES).hex,
+    capPattern: pick(CAP_PATTERNS),
+    capPatternColour: pick(GLAZES).hex,
+  };
+}
+
 export function defaultRecipe(): CharacterRecipe {
   return {
     id: newId(),
@@ -83,6 +113,7 @@ export function defaultRecipe(): CharacterRecipe {
     width: 1,
     clayHeight: 0.2,
     layers: [defaultLayer()],
+    glass: defaultGlass(),
     eyes: 'open',
     eyeHeight: 0.55,
     eyeSize: 1,
@@ -122,11 +153,12 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
   if (Math.random() < 0.25) layers.push({ ...randomLayer(false), reach: round2(between(0.1, 0.35)) });
   return {
     ...r,
-    body: weighted<Body>([['ghost', 60], ['cone', 10], ['bell', 10], ['bean', 10], ['blob', 10]]),
+    body: weighted<Body>([['ghost', 50], ['cone', 8], ['bell', 8], ['bean', 8], ['blob', 8], ['mushroom', 18]]),
     height: round2(between(HEIGHT.min, HEIGHT.max)),
     width: round2(between(WIDTH.min, WIDTH.max)),
     clayHeight: round2(between(0.12, 0.3)),
     layers,
+    glass: randomGlass(),
     eyes: weighted<Eyes>([['open', 55], ['tired', 15], ['sleepy', 10], ['happy', 10], ['crossed', 10]]),
     eyeHeight: round2(between(0.1, 0.95)),
     eyeSize: round2(between(0.8, 1.3)),
@@ -159,6 +191,18 @@ function normaliseLayer(raw: unknown): GlazeLayer {
   };
 }
 
+function normaliseGlass(raw: unknown): Glass {
+  const d = defaultGlass();
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    core: colour(o.core, d.core),
+    coreFinish: oneOf(CORE_FINISHES, o.coreFinish, d.coreFinish),
+    cap: colour(o.cap, d.cap),
+    capPattern: oneOf(CAP_PATTERNS, o.capPattern, d.capPattern),
+    capPatternColour: colour(o.capPatternColour, d.capPatternColour),
+  };
+}
+
 // Eye styles from earlier versions, mapped to their closest Arhoj-style replacement.
 const OLD_EYES: Record<string, Eyes> = { ring: 'open', dots: 'open', wide: 'open', closed: 'happy' };
 
@@ -179,11 +223,12 @@ export function normaliseRecipe(raw: unknown): CharacterRecipe {
   return {
     id: typeof o.id === 'string' && o.id ? o.id : d.id,
     name: typeof o.name === 'string' ? o.name.slice(0, 18) : d.name,
-    body: oneOf(BODIES, o.body, d.body), // old mushrooms become ghosts
+    body: oneOf(BODIES, o.body, d.body),
     height: num(o.height, HEIGHT, d.height),
     width: num(o.width, WIDTH, d.width),
     clayHeight: num(o.clayHeight, CLAY_HEIGHT, d.clayHeight),
     layers,
+    glass: normaliseGlass(o.glass),
     eyes: oneOf(EYES, OLD_EYES[String(o.eyes)] ?? o.eyes, d.eyes),
     eyeHeight: num(o.eyeHeight, EYE_HEIGHT, d.eyeHeight),
     eyeSize: num(o.eyeSize, EYE_SIZE, d.eyeSize),

@@ -5,9 +5,9 @@ import type { Mode } from '../mode';
 import { addLights, glaze, PAPER } from '../scene/stage';
 import { buildCharacter, disposeObject, type BuiltCharacter } from '../character/build';
 import {
-  BODIES, CLAY_HEIGHT, EDGES, EYE_HEIGHT, EYE_SIZE, EYE_SPACING, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
+  BODIES, CAP_PATTERNS, CLAY_HEIGHT, CORE_FINISHES, EDGES, EYE_HEIGHT, EYE_SIZE, EYE_SPACING, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
   PERSONALITIES, REACH, WIDTH,
-  defaultRecipe, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type GlazeLayer,
+  defaultRecipe, isGlass, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type Glass, type GlazeLayer,
 } from '../character/recipe';
 import { GLAZES, METALS, type Swatch } from '../character/palette';
 import { loadAll, removeOne, saveOne } from '../storage';
@@ -18,6 +18,7 @@ const LABELS: Record<string, string> = {
   glossy: 'Glossy', satin: 'Satin', metallic: 'Metallic',
   plain: 'Plain', speckle: 'Speckle', streaks: 'Streaks',
   clean: 'Clean', wavy: 'Wavy', drips: 'Drips', fade: 'Fade',
+  solid: 'Solid', frosted: 'Frosted', glitter: 'Glitter', confetti: 'Confetti', mushroom: 'Mushroom',
   none: 'None',
   dots: 'Dots', open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed',
   red: 'Tiny red',
@@ -35,6 +36,8 @@ export class Editor implements Mode {
   private panel = el('aside', 'panel');
   private savedList = el('div', 'saved-list');
   private layersEl = el('div', 'layers');
+  private materialTitle = el('h3', '', 'Glaze');
+  private claySlider: HTMLElement | null = null;
   private selectedLayer = 0;
   private toastEl = el('div', 'toast');
   private syncers: (() => void)[] = [];
@@ -172,7 +175,7 @@ export class Editor implements Mode {
       nameRow,
       section('Shape', this.chips('body', BODIES)),
       section('Size', this.slider('height', 'Tall', HEIGHT), this.slider('width', 'Wide', WIDTH)),
-      section('Glaze', this.slider('clayHeight', 'Clay', CLAY_HEIGHT), this.layersEl),
+      this.materialSection(),
       section(
         'Eyes',
         this.chips('eyes', EYES),
@@ -220,7 +223,41 @@ export class Editor implements Mode {
   // ---------- glaze layers ----------
 
   /** The layer editor is redrawn whenever layers change, since the controls depend on the layer. */
+  /** Glaze for ceramic bodies, glass for mushrooms: the section swaps its contents with the shape. */
+  private materialSection() {
+    this.claySlider = this.slider('clayHeight', 'Clay', CLAY_HEIGHT);
+    const s = el('section', 'section');
+    s.append(this.materialTitle, this.layersEl);
+    return s;
+  }
+
+  private renderGlass() {
+    this.materialTitle.textContent = 'Glass';
+    const g = this.recipe.glass;
+    const parts: HTMLElement[] = [
+      el('div', 'sub', 'Core'),
+      this.swatchRow(GLAZES, g.core, (core) => this.patchGlass({ core })),
+      this.chipRow(CORE_FINISHES, g.coreFinish, (coreFinish) => this.patchGlass({ coreFinish })),
+      el('div', 'sub', 'Cap'),
+      this.swatchRow(GLAZES, g.cap, (cap) => this.patchGlass({ cap })),
+      this.chipRow(CAP_PATTERNS, g.capPattern, (capPattern) => this.patchGlass({ capPattern })),
+    ];
+    if (g.capPattern !== 'plain') {
+      const label = { dots: 'Dot colour', glitter: 'Sparkle colour', confetti: 'Fleck colour' }[g.capPattern];
+      parts.push(el('div', 'sub', label), this.swatchRow(GLAZES, g.capPatternColour, (capPatternColour) => this.patchGlass({ capPatternColour })));
+    }
+    this.layersEl.replaceChildren(...parts);
+  }
+
+  private patchGlass(patch: Partial<Glass>) {
+    this.recipe = { ...this.recipe, glass: { ...this.recipe.glass, ...patch } };
+    this.rebuild();
+    this.renderGlass();
+  }
+
   private renderLayers() {
+    if (isGlass(this.recipe)) return this.renderGlass();
+    this.materialTitle.textContent = 'Glaze';
     const layers = this.recipe.layers;
     this.selectedLayer = Math.min(this.selectedLayer, layers.length - 1);
     const i = this.selectedLayer;
@@ -247,6 +284,7 @@ export class Editor implements Mode {
     }
 
     const parts: HTMLElement[] = [
+      this.claySlider!,
       tabs,
       this.swatchRow([...GLAZES, ...METALS], layer.colour, (hex) =>
         this.patchLayer({ colour: hex, finish: isMetal(hex) ? 'metallic' : layer.finish === 'metallic' ? 'glossy' : layer.finish }),
@@ -329,7 +367,7 @@ export class Editor implements Mode {
       const item = el('div', 'saved' + (r.id === this.recipe.id ? ' on' : ''));
       const open = button('', 'saved-open', () => this.load(r));
       const dotEl = el('span', 'saved-dot');
-      dotEl.style.background = r.layers[r.layers.length - 1].colour;
+      dotEl.style.background = isGlass(r) ? r.glass.cap : r.layers[r.layers.length - 1].colour;
       open.append(dotEl, el('span', '', r.name || 'Unnamed'));
       const del = button('×', 'saved-del', () => {
         if (!confirm(`Say goodbye to ${r.name}?`)) return;
