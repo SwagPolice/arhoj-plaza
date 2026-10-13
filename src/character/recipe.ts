@@ -1,11 +1,10 @@
 import { GLAZES, METALS } from './palette';
 import { between, pick } from '../util/random';
 
-export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'mushroom', 'blob'] as const;
+export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'blob'] as const;
 export const FINISHES = ['glossy', 'satin', 'metallic'] as const;
 export const PATTERNS = ['plain', 'speckle', 'dots', 'streaks'] as const;
 export const EDGES = ['clean', 'wavy', 'drips', 'fade'] as const;
-export const TOPPERS = ['none', 'cap', 'spots', 'leaf', 'tiny-hat'] as const;
 export const EYES = ['open', 'tired', 'sleepy', 'happy', 'crossed'] as const;
 export const MOUTHS = ['none', 'red'] as const;
 export const PERSONALITIES = ['calm', 'curious', 'shy', 'bouncy'] as const;
@@ -14,7 +13,6 @@ export type Body = (typeof BODIES)[number];
 export type Finish = (typeof FINISHES)[number];
 export type Pattern = (typeof PATTERNS)[number];
 export type Edge = (typeof EDGES)[number];
-export type Topper = (typeof TOPPERS)[number];
 export type Eyes = (typeof EYES)[number];
 export type Mouth = (typeof MOUTHS)[number];
 export type Personality = (typeof PERSONALITIES)[number];
@@ -50,8 +48,6 @@ export type CharacterRecipe = {
   width: number;
   clayHeight: number;
   layers: GlazeLayer[];
-  topper: Topper;
-  topperColour: string;
   eyes: Eyes;
   eyeHeight: number;
   eyeSize: number;
@@ -87,8 +83,6 @@ export function defaultRecipe(): CharacterRecipe {
     width: 1,
     clayHeight: 0.2,
     layers: [defaultLayer()],
-    topper: 'none',
-    topperColour: '#ec8a6a',
     eyes: 'open',
     eyeHeight: 0.55,
     eyeSize: 1,
@@ -128,13 +122,11 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
   if (Math.random() < 0.25) layers.push({ ...randomLayer(false), reach: round2(between(0.1, 0.35)) });
   return {
     ...r,
-    body: weighted<Body>([['ghost', 50], ['cone', 10], ['bell', 10], ['bean', 10], ['mushroom', 10], ['blob', 10]]),
+    body: weighted<Body>([['ghost', 60], ['cone', 10], ['bell', 10], ['bean', 10], ['blob', 10]]),
     height: round2(between(HEIGHT.min, HEIGHT.max)),
     width: round2(between(WIDTH.min, WIDTH.max)),
     clayHeight: round2(between(0.12, 0.3)),
     layers,
-    topper: weighted<Topper>([['none', 70], ['cap', 8], ['spots', 8], ['leaf', 7], ['tiny-hat', 7]]),
-    topperColour: pick(GLAZES).hex,
     eyes: weighted<Eyes>([['open', 55], ['tired', 15], ['sleepy', 10], ['happy', 10], ['crossed', 10]]),
     eyeHeight: round2(between(0.1, 0.95)),
     eyeSize: round2(between(0.8, 1.3)),
@@ -187,13 +179,11 @@ export function normaliseRecipe(raw: unknown): CharacterRecipe {
   return {
     id: typeof o.id === 'string' && o.id ? o.id : d.id,
     name: typeof o.name === 'string' ? o.name.slice(0, 18) : d.name,
-    body: oneOf(BODIES, o.body, d.body),
+    body: oneOf(BODIES, o.body, d.body), // old mushrooms become ghosts
     height: num(o.height, HEIGHT, d.height),
     width: num(o.width, WIDTH, d.width),
     clayHeight: num(o.clayHeight, CLAY_HEIGHT, d.clayHeight),
     layers,
-    topper: oneOf(TOPPERS, o.topper, d.topper),
-    topperColour: colour(o.topperColour, d.topperColour),
     eyes: oneOf(EYES, OLD_EYES[String(o.eyes)] ?? o.eyes, d.eyes),
     eyeHeight: num(o.eyeHeight, EYE_HEIGHT, d.eyeHeight),
     eyeSize: num(o.eyeSize, EYE_SIZE, d.eyeSize),

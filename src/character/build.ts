@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import type { Body, CharacterRecipe, Eyes } from './recipe';
 import { CREAM, INK, MOUTH_RED, WHITE } from './palette';
-import { glaze } from '../scene/stage';
-import { hashString, mulberry32 } from '../util/random';
+import { hashString } from '../util/random';
 import { colourAt, glazeMaterial } from './glaze';
 
 export type Pt = [number, number];
@@ -14,13 +13,11 @@ const BODY_PROFILES: Record<Body, Pt[]> = {
   cone: [[0, 0], [0.25, 0], [0.5, 0], [0.54, 0.05], [0.48, 0.22], [0.38, 0.48], [0.26, 0.74], [0.14, 0.95], [0.05, 1.07], [0, 1.1]],
   bell: [[0, 0], [0.27, 0], [0.54, 0], [0.57, 0.06], [0.5, 0.25], [0.44, 0.55], [0.4, 0.78], [0.3, 0.96], [0.14, 1.04], [0, 1.06]],
   bean: [[0, 0], [0.14, 0], [0.28, 0.01], [0.42, 0.08], [0.49, 0.3], [0.49, 0.6], [0.42, 0.86], [0.25, 1.0], [0, 1.04]],
-  mushroom: [[0, 0], [0.18, 0], [0.38, 0], [0.4, 0.04], [0.37, 0.25], [0.35, 0.5], [0.33, 0.68], [0, 0.72]],
   blob: [[0, 0], [0.28, 0], [0.56, 0], [0.57, 0.05], [0.47, 0.2], [0.44, 0.5], [0.42, 0.75], [0.33, 0.95], [0.17, 1.05], [0, 1.08]],
 };
-const MUSHROOM_CAP: Pt[] = [[0, 0.6], [0.25, 0.59], [0.46, 0.58], [0.58, 0.62], [0.58, 0.7], [0.48, 0.85], [0.28, 0.95], [0, 0.98]];
 
-// Highest the eyes can go, as a fraction of body height (lower on mushrooms so the cap doesn't hide them).
-const EYE_TOP: Record<Body, number> = { ghost: 0.86, cone: 0.8, bell: 0.85, bean: 0.85, mushroom: 0.62, blob: 0.85 };
+// Highest the eyes can go, as a fraction of body height.
+const EYE_TOP: Record<Body, number> = { ghost: 0.86, cone: 0.8, bell: 0.85, bean: 0.85, blob: 0.85 };
 
 export type BuiltCharacter = {
   root: THREE.Group; // placed in the world
@@ -99,7 +96,6 @@ function bend<G extends THREE.BufferGeometry>(geo: G, R: number): G {
 
 export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
   const seed = hashString(r.id);
-  const rand = mulberry32(seed);
   const sx = r.width;
   const sy = r.height;
   const root = new THREE.Group();
@@ -112,21 +108,9 @@ export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
   pose.add(bodyMesh);
   const bodySurface: Surface = { pts: body.pts, sx, sy };
 
-  let top = maxY(body.pts) * sy;
-  let radius = maxR(body.pts) * sx;
-  let topSurface = bodySurface;
-  if (r.body === 'mushroom') {
-    const cap = latheFrom(MUSHROOM_CAP);
-    const capMesh = new THREE.Mesh(cap.geo, glaze(r.topperColour));
-    capMesh.scale.set(sx, sy, sx);
-    pose.add(capMesh);
-    topSurface = { pts: cap.pts, sx, sy };
-    top = maxY(cap.pts) * sy;
-    radius = Math.max(radius, maxR(cap.pts) * sx);
-  }
-
+  const top = maxY(body.pts) * sy;
+  const radius = maxR(body.pts) * sx;
   const look = addFace(pose, r, bodySurface);
-  addTopper(pose, r, topSurface, top, rand);
 
   pose.traverse((o) => {
     // Decals sit a hair above the glaze; shadows at that distance just smudge them.
@@ -278,58 +262,6 @@ function tinyMouth(size: number, R: number) {
   m.position.y = 0.012 * size;
   m.userData.decal = true;
   return new THREE.Group().add(m);
-}
-
-// ---------- toppers ----------
-
-function addTopper(pose: THREE.Group, r: CharacterRecipe, s: Surface, top: number, rand: () => number) {
-  const accent = glaze(r.topperColour);
-  if (r.topper === 'cap') {
-    const beret = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 16), accent);
-    beret.scale.set(1, 0.42, 1);
-    const nub = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), accent);
-    nub.position.y = 0.085;
-    const g = new THREE.Group().add(beret, nub);
-    g.position.set(0.02, top - 0.02, 0);
-    g.rotation.z = 0.22;
-    pose.add(g);
-  }
-  if (r.topper === 'spots') {
-    const onCap = r.body === 'mushroom';
-    const mat = onCap ? glaze(CREAM) : accent;
-    const height = maxY(s.pts);
-    for (let i = 0; i < (onCap ? 9 : 7); i++) {
-      const py = onCap ? 0.66 + rand() * 0.27 : height * (0.5 + rand() * 0.4);
-      // Keep spots off the face (front = angle 0) unless they're on a mushroom cap.
-      const angle = onCap ? rand() * Math.PI * 2 : Math.PI * (0.35 + rand() * 1.3);
-      const spot = new THREE.Mesh(new THREE.SphereGeometry(0.035 + rand() * 0.035, 16, 10), mat);
-      spot.scale.z = 0.35;
-      pose.add(stick(spot, s, py, angle));
-    }
-  }
-  if (r.topper === 'leaf') {
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.16, 8), accent);
-    stem.position.y = top + 0.06;
-    pose.add(stem);
-    for (const side of [-1, 1]) {
-      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 10), accent);
-      leaf.scale.set(1.8, 0.35, 0.8);
-      leaf.position.set(side * 0.085, top + 0.13, 0);
-      leaf.rotation.z = side * 0.45;
-      pose.add(leaf);
-    }
-  }
-  if (r.topper === 'tiny-hat') {
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.022, 32), accent);
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.115, 0.17, 32), accent);
-    crown.position.y = 0.095;
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.118, 0.118, 0.035, 32), glaze(CREAM));
-    band.position.y = 0.03;
-    const g = new THREE.Group().add(brim, crown, band);
-    g.position.y = top - 0.035;
-    g.rotation.z = -0.12;
-    pose.add(g);
-  }
 }
 
 export function disposeObject(obj: THREE.Object3D) {

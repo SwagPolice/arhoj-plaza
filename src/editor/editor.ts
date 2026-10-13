@@ -6,7 +6,7 @@ import { addLights, glaze, PAPER } from '../scene/stage';
 import { buildCharacter, disposeObject, type BuiltCharacter } from '../character/build';
 import {
   BODIES, CLAY_HEIGHT, EDGES, EYE_HEIGHT, EYE_SIZE, EYE_SPACING, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
-  PERSONALITIES, REACH, TOPPERS, WIDTH,
+  PERSONALITIES, REACH, WIDTH,
   defaultRecipe, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type GlazeLayer,
 } from '../character/recipe';
 import { GLAZES, METALS, type Swatch } from '../character/palette';
@@ -14,11 +14,11 @@ import { loadAll, removeOne, saveOne } from '../storage';
 import { button, el } from '../ui/dom';
 
 const LABELS: Record<string, string> = {
-  ghost: 'Ghost', cone: 'Cone', mushroom: 'Mushroom', bean: 'Bean', bell: 'Bell', blob: 'Blob',
+  ghost: 'Ghost', cone: 'Cone', bean: 'Bean', bell: 'Bell', blob: 'Blob',
   glossy: 'Glossy', satin: 'Satin', metallic: 'Metallic',
   plain: 'Plain', speckle: 'Speckle', streaks: 'Streaks',
   clean: 'Clean', wavy: 'Wavy', drips: 'Drips', fade: 'Fade',
-  none: 'None', cap: 'Beret', spots: 'Spots', leaf: 'Sprout', 'tiny-hat': 'Top hat',
+  none: 'None',
   dots: 'Dots', open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed',
   red: 'Tiny red',
   calm: '🍵 Calm', curious: '🔍 Curious', shy: '🌱 Shy', bouncy: '🎵 Bouncy',
@@ -173,7 +173,6 @@ export class Editor implements Mode {
       section('Shape', this.chips('body', BODIES)),
       section('Size', this.slider('height', 'Tall', HEIGHT), this.slider('width', 'Wide', WIDTH)),
       section('Glaze', this.slider('clayHeight', 'Clay', CLAY_HEIGHT), this.layersEl),
-      section('On top', this.chips('topper', TOPPERS), this.swatches('topperColour')),
       section(
         'Eyes',
         this.chips('eyes', EYES),
@@ -194,18 +193,6 @@ export class Editor implements Mode {
       const b = button(LABELS[String(v)] ?? String(v), 'chip', () => this.set(key, v));
       wrap.append(b);
       this.syncers.push(() => b.classList.toggle('on', this.recipe[key] === v));
-    }
-    return wrap;
-  }
-
-  private swatches(key: 'topperColour') {
-    const wrap = el('div', 'swatches');
-    for (const g of GLAZES) {
-      const b = button('', 'swatch', () => this.set(key, g.hex));
-      b.style.background = g.hex;
-      b.title = g.name;
-      wrap.append(b);
-      this.syncers.push(() => b.classList.toggle('on', this.recipe[key].toLowerCase() === g.hex));
     }
     return wrap;
   }
