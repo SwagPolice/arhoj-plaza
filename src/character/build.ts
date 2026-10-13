@@ -221,8 +221,12 @@ function makeEye(kind: Eyes, side: number, size: number, R: number, ink: THREE.M
   flat(new THREE.CircleGeometry(rIn + 0.001, 48), white, 0);
   // The pupil is re-curved every time it moves, so it hugs the body wherever it slides to.
   const pupilGeo = new THREE.CircleGeometry(PUPIL * size, 32);
-  const pupilX = Array.from({ length: pupilGeo.attributes.position.count }, (_, i) => pupilGeo.attributes.position.getX(i));
+  const base = pupilGeo.attributes.position;
+  const pupilShape = Array.from({ length: base.count }, (_, i) => [base.getX(i), base.getY(i)]);
   const pupil = new THREE.Mesh(pupilGeo, black);
+  pupil.position.z = 0.0012;
+  // For tired eyes: the highest the pupil may reach at x (just under the lid line).
+  let lidLimit: ((x: number) => number) | null = null;
   pupil.userData.decal = true;
   g.add(pupil);
   flat(new THREE.RingGeometry(rIn, rIn + EYE_LINE * size, 64), black, 0.0024);
@@ -238,8 +242,11 @@ function makeEye(kind: Eyes, side: number, size: number, R: number, ink: THREE.M
     flat(new THREE.ShapeGeometry(lidShape, 24), white, 0.0018, lid);
     const half = Math.sqrt(rIn * rIn - h * h);
     flat(new THREE.PlaneGeometry(2 * half, EYE_LINE * size, 16, 1), black, 0.0024, lid).position.y = h;
-    lid.rotation.z = -side * 0.08; // droops a little towards the outside
+    const tilt = -side * 0.08; // droops a little towards the outside
+    lid.rotation.z = tilt;
     g.add(lid);
+    // The lid line, rotated with the lid: y = h / cos(tilt) + tan(tilt) * x. Keep the pupil below its underside.
+    lidLimit = (x) => (h - (EYE_LINE * size) / 2) / Math.cos(tilt) + Math.tan(tilt) * x;
   }
 
   const reach = rIn - PUPIL * size - 0.004 * size;
@@ -250,11 +257,16 @@ function makeEye(kind: Eyes, side: number, size: number, R: number, ink: THREE.M
     if (kind === 'tired') gy = -0.35; // pupils stay tucked under the lid
     const len = Math.hypot(gx, gy);
     if (len > 1) [gx, gy] = [gx / len, gy / len];
-    const px = gx * reach;
-    pupil.position.set(px, gy * reach, 0.0012);
-    const pos = pupilGeo.attributes.position;
-    pupilX.forEach((x, i) => pos.setZ(i, curveZ(px + x)));
-    pos.needsUpdate = true;
+    const cx = gx * reach;
+    const cy = gy * reach;
+    // Rewrite the pupil's outline in place: moved, cut off under the lid, and curved to the body.
+    pupilShape.forEach(([bx, by], i) => {
+      const x = cx + bx;
+      const y = lidLimit ? Math.min(cy + by, lidLimit(x)) : cy + by;
+      base.setXYZ(i, x, y, curveZ(x));
+    });
+    base.needsUpdate = true;
+    pupilGeo.computeBoundingSphere();
   };
   look(0, 0);
   return { object: g, look };
