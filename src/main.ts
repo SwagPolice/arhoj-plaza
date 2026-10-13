@@ -6,6 +6,7 @@ import { Plaza } from './plaza/plaza';
 import { DebugGrid } from './debug/grid';
 import { defaultRecipe } from './character/recipe';
 import { loadAll } from './storage';
+import { decodeCharacter, ShareError } from './share';
 import { button, el } from './ui/dom';
 
 type ModeName = 'make' | 'plaza';
@@ -68,12 +69,26 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     go('make');
   }
 
+  // Share links look like …#import=arhoj1.xxxx and open the character in the maker, unsaved.
+  async function openShareLink() {
+    go('make');
+    try {
+      const { recipe, fromNewer } = await decodeCharacter(location.hash);
+      editor.importRecipe(recipe, fromNewer);
+    } catch (e) {
+      editor.toast(e instanceof ShareError ? e.message : 'That share link could not be read.');
+    }
+    history.replaceState(null, '', '#make');
+  }
+
   window.addEventListener('hashchange', () => {
     const name = hashMode();
-    if (name === 'make') openMaker();
+    if (location.hash.startsWith('#import=')) openShareLink();
+    else if (name === 'make') openMaker();
     else if (name) go(name);
   });
-  go(hashMode() ?? (loadAll().length ? 'plaza' : 'make'));
+  if (location.hash.startsWith('#import=')) openShareLink();
+  else go(hashMode() ?? (loadAll().length ? 'plaza' : 'make'));
 }
 
 function resize() {

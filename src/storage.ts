@@ -1,4 +1,4 @@
-import { normaliseRecipe, type CharacterRecipe } from './character/recipe';
+import { normaliseRecipe, RECIPE_VERSION, type CharacterRecipe } from './character/recipe';
 
 const KEY = 'arhoj-plaza.characters.v1';
 
@@ -14,7 +14,7 @@ export function loadAll(): CharacterRecipe[] {
 
 function writeAll(list: CharacterRecipe[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list));
+    localStorage.setItem(KEY, JSON.stringify(list.map((r) => ({ v: RECIPE_VERSION, ...r }))));
   } catch {
     // Storage can be unavailable (private mode); the game still runs, it just won't remember.
   }

@@ -1,3 +1,17 @@
+/*
+ * Character recipes are saved in the browser and shared as codes, so old data must keep loading
+ * after the game changes. Rules for changing this file:
+ *
+ *  1. New setting: give it a default in defaultRecipe() and read it in normaliseRecipe().
+ *     Older recipes simply get the default.
+ *  2. New option for an existing setting (a shape, pattern, eye type...): add it to its list.
+ *     Never rename a value that has shipped.
+ *  3. Removing an option: map the old value to its closest replacement (see OLD_EYES). Never just delete it.
+ *  4. Changing what an existing setting means: bump RECIPE_VERSION and add a step to MIGRATIONS.
+ *  5. Add a share code using the new feature to tests/fixtures.ts, so it stays readable forever.
+ *
+ * `npm test` checks that every old code in tests/fixtures.ts still opens as the same character.
+ */
 import { GLAZES, METALS } from './palette';
 import { between, hashString, pick } from '../util/random';
 
@@ -184,6 +198,29 @@ export function copyOf(r: CharacterRecipe): CharacterRecipe {
 
 // ---------- loading saved data ----------
 
+/** Version of the recipe format. Only bump it together with a new step in MIGRATIONS (rule 4 above). */
+export const RECIPE_VERSION = 1;
+
+type Raw = Record<string, unknown>;
+
+// MIGRATIONS[n] upgrades version n data to version n + 1. Version 0 = saved before versions existed;
+// its differences (old field names and values) are covered by the fallbacks in normaliseRecipe.
+const MIGRATIONS: Record<number, (o: Raw) => Raw> = {
+  0: (o) => o,
+};
+
+/** Bring raw saved data up to the current version. Data from a newer version is left as is (best effort). */
+function upgrade(o: Raw): Raw {
+  let v = typeof o.v === 'number' ? o.v : 0;
+  let data = o;
+  while (v < RECIPE_VERSION) data = MIGRATIONS[v++](data);
+  return data;
+}
+
+/** True when data was made by a newer version of the game than this one. */
+export const isFromNewerVersion = (raw: unknown) =>
+  !!raw && typeof raw === 'object' && typeof (raw as Raw).v === 'number' && ((raw as Raw).v as number) > RECIPE_VERSION;
+
 const oneOf = <T extends string>(xs: readonly T[], v: unknown, fb: T): T =>
   (xs as readonly unknown[]).includes(v) ? (v as T) : fb;
 const num = (v: unknown, range: { min: number; max: number }, fb: number) =>
@@ -221,7 +258,7 @@ const OLD_EYES: Record<string, Eyes> = { ring: 'open', dots: 'open', wide: 'open
 /** Turn anything loaded from storage into a valid recipe, filling gaps with defaults. */
 export function normaliseRecipe(raw: unknown): CharacterRecipe {
   const d = defaultRecipe();
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const o = upgrade((raw && typeof raw === 'object' ? raw : {}) as Raw);
   let layers = Array.isArray(o.layers) ? o.layers.slice(0, MAX_LAYERS).map(normaliseLayer) : [];
   if (!layers.length) {
     // Characters saved before glaze layers existed.

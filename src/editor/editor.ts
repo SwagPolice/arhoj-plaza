@@ -11,6 +11,7 @@ import {
 } from '../character/recipe';
 import { GLAZES, METALS, type Swatch } from '../character/palette';
 import { loadAll, removeOne, saveOne } from '../storage';
+import { decodeCharacter, encodeCharacter, ShareError, shareLink } from '../share';
 import { button, el } from '../ui/dom';
 
 const LABELS: Record<string, string> = {
@@ -87,6 +88,16 @@ export class Editor implements Mode {
 
   private isSaved() {
     return loadAll().some((r) => r.id === this.recipe.id);
+  }
+
+  /** A character from a share code or link: opens as a new, unsaved character. */
+  importRecipe(recipe: CharacterRecipe, fromNewer: boolean) {
+    this.load(recipe);
+    this.toast(
+      fromNewer
+        ? `Imported ${recipe.name}. It was made with a newer version, so a few details may be missing.`
+        : `Imported ${recipe.name}. Save to add them to your plaza.`,
+    );
   }
 
   load(recipe: CharacterRecipe) {
@@ -189,6 +200,8 @@ export class Editor implements Mode {
     const saveAsNew = button('Save as new', 'btn', () => this.saveAsNew());
     const save = button('Save', 'btn primary', () => this.save());
     saveRow.append(saveAsNew, save);
+    const shareRow = el('div', 'actions');
+    shareRow.append(button('↗ Share', 'btn', () => this.openShare()), button('Import a code', 'btn', () => this.openImport()));
     this.syncers.push(() => {
       const saved = this.isSaved();
       save.textContent = saved ? 'Save changes' : 'Save';
@@ -212,6 +225,7 @@ export class Editor implements Mode {
       section('Personality', this.chips('personality', PERSONALITIES)),
       actions,
       saveRow,
+      shareRow,
       section('Your characters', this.savedList),
     );
   }
@@ -414,12 +428,81 @@ export class Editor implements Mode {
     }
   }
 
-  private toast(text: string) {
+  // ---------- sharing ----------
+
+  private async openShare() {
+    const code = await encodeCharacter(this.recipe);
+    const box = el('textarea', 'code-box');
+    box.readOnly = true;
+    box.value = code;
+    box.addEventListener('focus', () => box.select());
+    const copy = (label: string, text: string) => {
+      const b = button(label, 'btn', async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          b.textContent = 'Copied ✓';
+        } catch {
+          box.select(); // clipboard blocked: leave it selected for ⌘C
+          b.textContent = 'Press ⌘C to copy';
+        }
+        setTimeout(() => (b.textContent = label), 1800);
+      });
+      return b;
+    };
+    openDialog(`Share ${this.recipe.name || 'this character'}`, [
+      el('p', 'muted', 'Anyone with this code or link can add a copy of this character to their own plaza.'),
+      box,
+      row(copy('Copy code', code), copy('Copy link', shareLink(code))),
+    ]);
+  }
+
+  private openImport() {
+    const box = el('textarea', 'code-box');
+    box.placeholder = 'Paste a character code or link';
+    const error = el('p', 'error');
+    const dialog = openDialog('Import a character', [
+      box,
+      error,
+      row(
+        button('Import', 'btn primary', async () => {
+          try {
+            const { recipe, fromNewer } = await decodeCharacter(box.value);
+            dialog.close();
+            this.importRecipe(recipe, fromNewer);
+          } catch (e) {
+            error.textContent = e instanceof ShareError ? e.message : 'Something went wrong reading that code.';
+          }
+        }),
+      ),
+    ]);
+    box.focus();
+  }
+
+  toast(text: string) {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('show');
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 2600);
   }
+}
+
+function row(...children: HTMLElement[]) {
+  const r = el('div', 'actions');
+  r.append(...children);
+  return r;
+}
+
+/** A small modal with a title and a Close button. Removes itself when closed. */
+function openDialog(title: string, body: HTMLElement[]) {
+  const d = el('dialog', 'dialog');
+  const close = button('×', 'dialog-close', () => d.close());
+  close.title = 'Close';
+  d.append(close, el('h3', '', title), ...body);
+  d.addEventListener('close', () => d.remove());
+  d.addEventListener('click', (e) => e.target === d && d.close()); // click outside
+  document.body.append(d);
+  d.showModal();
+  return d;
 }
 
 function section(title: string, ...children: HTMLElement[]) {
