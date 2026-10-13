@@ -1,5 +1,5 @@
 import { GLAZES, METALS } from './palette';
-import { between, pick } from '../util/random';
+import { between, hashString, pick } from '../util/random';
 
 export const BODIES = ['ghost', 'cone', 'bell', 'bean', 'blob', 'mushroom'] as const;
 export const CORE_FINISHES = ['solid', 'frosted'] as const;
@@ -58,6 +58,7 @@ export const isGlass = (r: CharacterRecipe) => r.body === 'mushroom';
 export type CharacterRecipe = {
   id: string;
   name: string;
+  seed: number; // where the drips, speckles and dots fall; copies keep it so they look identical
   body: Body;
   height: number;
   width: number;
@@ -104,10 +105,13 @@ export function randomGlass(): Glass {
   };
 }
 
+const newSeed = () => Math.floor(Math.random() * 2 ** 31);
+
 export function defaultRecipe(): CharacterRecipe {
   return {
     id: newId(),
     name: randomName(),
+    seed: newSeed(),
     body: 'ghost',
     height: 1,
     width: 1,
@@ -153,6 +157,7 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
   if (Math.random() < 0.25) layers.push({ ...randomLayer(false), reach: round2(between(0.1, 0.35)) });
   return {
     ...r,
+    seed: newSeed(),
     body: weighted<Body>([['ghost', 50], ['cone', 8], ['bell', 8], ['bean', 8], ['blob', 8], ['mushroom', 18]]),
     height: round2(between(HEIGHT.min, HEIGHT.max)),
     width: round2(between(WIDTH.min, WIDTH.max)),
@@ -169,6 +174,13 @@ export function randomLooks(r: CharacterRecipe): CharacterRecipe {
 }
 
 export const randomRecipe = () => randomLooks(defaultRecipe());
+
+/** An unsaved copy to start a new character from: same look, new identity, numbered name. */
+export function copyOf(r: CharacterRecipe): CharacterRecipe {
+  const m = r.name.match(/^(.*?)\s*(\d+)$/);
+  const name = m ? `${m[1]} ${Number(m[2]) + 1}` : `${r.name} 2`;
+  return { ...r, id: newId(), name: name.slice(0, 18) };
+}
 
 // ---------- loading saved data ----------
 
@@ -223,6 +235,8 @@ export function normaliseRecipe(raw: unknown): CharacterRecipe {
   return {
     id: typeof o.id === 'string' && o.id ? o.id : d.id,
     name: typeof o.name === 'string' ? o.name.slice(0, 18) : d.name,
+    // Characters saved before seeds existed used their id, so they keep their look.
+    seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? o.seed : typeof o.id === 'string' ? hashString(o.id) : d.seed,
     body: oneOf(BODIES, o.body, d.body),
     height: num(o.height, HEIGHT, d.height),
     width: num(o.width, WIDTH, d.width),

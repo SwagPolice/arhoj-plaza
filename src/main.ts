@@ -41,7 +41,7 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
 
   const tabs = el('nav', 'tabs');
   const tabButtons = {
-    make: button('✏️ Make', '', () => go('make')),
+    make: button('✏️ Make', '', () => openMaker()),
     plaza: button('🏝️ Plaza', '', () => go('plaza')),
   };
   tabs.append(tabButtons.make, tabButtons.plaza);
@@ -61,9 +61,17 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     const h = location.hash.slice(1);
     return h === 'make' || h === 'plaza' ? h : null;
   };
+  // The Make tab opens a new character, so a saved one is never changed by accident.
+  // (Editing a saved character goes through its card's Edit button instead.)
+  function openMaker() {
+    if (current === plaza) editor.startFresh();
+    go('make');
+  }
+
   window.addEventListener('hashchange', () => {
     const name = hashMode();
-    if (name) go(name);
+    if (name === 'make') openMaker();
+    else if (name) go(name);
   });
   go(hashMode() ?? (loadAll().length ? 'plaza' : 'make'));
 }

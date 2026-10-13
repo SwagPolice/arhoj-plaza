@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { isGlass, type Body, type CharacterRecipe, type Eyes } from './recipe';
 import { CREAM, INK, MOUTH_RED, WHITE } from './palette';
-import { hashString, mulberry32 } from '../util/random';
+import { mulberry32 } from '../util/random';
 import { colourAt, glazeMaterial } from './glaze';
 import { capMaterial, coreMaterial, shellMaterial } from './glass';
 
@@ -102,7 +102,7 @@ function bend<G extends THREE.BufferGeometry>(geo: G, R: number): G {
 }
 
 export function buildCharacter(r: CharacterRecipe): BuiltCharacter {
-  const seed = hashString(r.id);
+  const seed = r.seed;
   const sx = r.width;
   const sy = r.height;
   const root = new THREE.Group();

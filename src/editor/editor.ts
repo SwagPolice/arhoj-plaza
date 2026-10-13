@@ -7,7 +7,7 @@ import { buildCharacter, disposeObject, type BuiltCharacter } from '../character
 import {
   BODIES, CAP_PATTERNS, CLAY_HEIGHT, CORE_FINISHES, EDGES, EYE_HEIGHT, EYE_SIZE, EYE_SPACING, EYES, FINISHES, HEIGHT, MAX_LAYERS, MOUTHS, PATTERNS,
   PERSONALITIES, REACH, WIDTH,
-  defaultRecipe, isGlass, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type Glass, type GlazeLayer,
+  copyOf, defaultRecipe, isGlass, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type Glass, type GlazeLayer,
 } from '../character/recipe';
 import { GLAZES, METALS, type Swatch } from '../character/palette';
 import { loadAll, removeOne, saveOne } from '../storage';
@@ -78,6 +78,15 @@ export class Editor implements Mode {
     this.layer.style.display = 'none';
     uiRoot.append(this.layer);
     this.rebuild();
+  }
+
+  /** Coming back from the plaza: start a new character, unless one is already in progress (unsaved). */
+  startFresh() {
+    if (this.isSaved()) this.load(defaultRecipe());
+  }
+
+  private isSaved() {
+    return loadAll().some((r) => r.id === this.recipe.id);
   }
 
   load(recipe: CharacterRecipe) {
@@ -157,6 +166,12 @@ export class Editor implements Mode {
     dice.title = 'Random name';
     const nameRow = el('div', 'name-row');
     nameRow.append(name, dice);
+    const status = el('div', 'status');
+    this.syncers.push(() => {
+      const saved = this.isSaved();
+      status.textContent = saved ? 'Editing a saved character' : 'New character';
+      status.classList.toggle('editing', saved);
+    });
 
     this.syncers.push(() => this.renderLayers());
 
@@ -168,11 +183,21 @@ export class Editor implements Mode {
         this.sync();
       }),
       button('New', 'btn', () => this.load(defaultRecipe())),
-      button('Save', 'btn primary', () => this.save()),
     );
+    // Saving a saved character asks which you mean: update it, or keep it and save a new one.
+    const saveRow = el('div', 'actions');
+    const saveAsNew = button('Save as new', 'btn', () => this.saveAsNew());
+    const save = button('Save', 'btn primary', () => this.save());
+    saveRow.append(saveAsNew, save);
+    this.syncers.push(() => {
+      const saved = this.isSaved();
+      save.textContent = saved ? 'Save changes' : 'Save';
+      saveAsNew.style.display = saved ? '' : 'none';
+    });
 
     this.panel.append(
       nameRow,
+      status,
       section('Shape', this.chips('body', BODIES)),
       section('Size', this.slider('height', 'Tall', HEIGHT), this.slider('width', 'Wide', WIDTH)),
       this.materialSection(),
@@ -186,6 +211,7 @@ export class Editor implements Mode {
       section('Mouth', this.chips('mouth', MOUTHS)),
       section('Personality', this.chips('personality', PERSONALITIES)),
       actions,
+      saveRow,
       section('Your characters', this.savedList),
     );
   }
@@ -350,10 +376,16 @@ export class Editor implements Mode {
 
   private save() {
     if (!this.recipe.name.trim()) this.recipe = { ...this.recipe, name: randomName() };
+    const updating = this.isSaved();
     saveOne(this.recipe);
     this.sync();
     this.renderSaved();
-    this.toast(`Saved ${this.recipe.name} ✓ They've moved into the plaza.`);
+    this.toast(updating ? `Saved changes to ${this.recipe.name} ✓` : `Saved ${this.recipe.name} ✓ They've moved into the plaza.`);
+  }
+
+  private saveAsNew() {
+    this.recipe = copyOf(this.recipe);
+    this.save();
   }
 
   private renderSaved() {
@@ -375,7 +407,9 @@ export class Editor implements Mode {
         this.renderSaved();
       });
       del.title = 'Delete';
-      item.append(open, del);
+      const copy = button('⧉', 'saved-del', () => this.load(copyOf(r)));
+      copy.title = 'Start a new character from this one';
+      item.append(open, copy, del);
       this.savedList.append(item);
     }
   }
