@@ -141,6 +141,22 @@ export class Plaza implements Mode {
     this.h = h;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // Frame the whole island for this screen shape (phones need to stand further back).
+    if (!this.decorator.active) {
+      // Tall screens look down a little more steeply, so the island fills more of the height.
+      const offset = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+      offset.phi = this.camera.aspect < 0.8 ? 0.7 : Math.atan2(16.5, 11.5);
+      offset.radius = this.viewDistance();
+      this.camera.position.copy(this.controls.target).add(new THREE.Vector3().setFromSpherical(offset));
+    }
+    this.fitToIsland();
+  }
+
+  /** How far back the camera stands: the usual distance, or further on narrow screens so the island's width fits. */
+  private viewDistance() {
+    const r = this.layout.radius;
+    const halfWidth = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect;
+    return Math.max(r * 2.68, (r * 1.05) / halfWidth); // r × 2.68 is the original view on wide screens
   }
 
   // ---------- decorating ----------
@@ -196,10 +212,12 @@ export class Plaza implements Mode {
   private fitToIsland() {
     const k = this.layout.radius / 7.5;
     this.controls.minDistance = 6 * k;
-    this.controls.maxDistance = this.decorator?.active ? 120 : 30 * k;
+    const d = this.viewDistance();
+    this.controls.maxDistance = this.decorator?.active ? 120 : Math.max(30 * k, d * 1.3);
+    // Haze only beyond the island, however far back the camera is (phones and Decorate stand further away).
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = this.decorator?.active ? 150 : 30 * k; // the decorating view can be far away on phones
-    fog.far = this.decorator?.active ? 300 : 70 * k;
+    fog.near = this.decorator?.active ? 150 : Math.max(30 * k, d + this.layout.radius);
+    fog.far = this.decorator?.active ? 300 : Math.max(70 * k, d + this.layout.radius * 7);
   }
 
   /** Bring the plaza in line with what's saved: add newcomers, rebuild edited ones, remove deleted ones. */
