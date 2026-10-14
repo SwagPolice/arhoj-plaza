@@ -136,3 +136,33 @@ body {
   .card { left: 12px; right: 12px; bottom: 72px; }
   .plaza-tools { right: 12px; bottom: 12px; }
 }
+
+.decor-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 16px;
+  background: var(--card);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.decor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.decor-row > span { font-weight: 700; font-size: 14px; }
+.decor-row input[type='range'] { flex: 1; accent-color: var(--ink); }
+.decor-row:last-child { justify-content: flex-end; }
+.decor-add .btn { flex: 1; white-space: nowrap; }
+.decor-tip { font-size: 13px; margin: 0; }
+.decor-hint { color: #a8502c; font-size: 13px; font-weight: 600; min-height: 1em; }
+.decor-hint:empty { display: none; }
+.decor-remove { position: absolute; left: 0; top: 0; font-size: 13px; padding: 6px 10px; }
+
+@media (max-width: 760px) {
+  .decor-bar { bottom: 12px; width: calc(100vw - 24px); }
+  .decor-add .btn { flex: 1 1 40%; }
+}

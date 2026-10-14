@@ -1,4 +1,5 @@
 import { normaliseRecipe, RECIPE_VERSION, type CharacterRecipe } from './character/recipe';
+import { defaultLayout, LAYOUT_VERSION, normaliseLayout, type IslandLayout } from './scene/layout';
 
 const KEY = 'arhoj-plaza.characters.v1';
 
@@ -34,4 +35,25 @@ export function removeOne(id: string) {
 
 export function removeAll() {
   writeAll([]);
+}
+
+// ---------- the island ----------
+
+const ISLAND_KEY = 'arhoj-plaza.island.v1';
+
+export function loadIsland(): IslandLayout {
+  try {
+    const raw = localStorage.getItem(ISLAND_KEY);
+    return raw ? normaliseLayout(JSON.parse(raw)) : defaultLayout();
+  } catch {
+    return defaultLayout();
+  }
+}
+
+export function saveIsland(layout: IslandLayout) {
+  try {
+    localStorage.setItem(ISLAND_KEY, JSON.stringify({ v: LAYOUT_VERSION, ...layout }));
+  } catch {
+    // Storage unavailable: the island still works, it just won't be remembered.
+  }
 }

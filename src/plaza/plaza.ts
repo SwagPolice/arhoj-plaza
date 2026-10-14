@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Mode } from '../mode';
 import { addLights } from '../scene/stage';
-import { buildIsland } from '../scene/island';
+import { buildIsland, type BuiltIsland } from '../scene/island';
+import type { IslandLayout } from '../scene/layout';
 import { buildCharacter, disposeObject } from '../character/build';
 import { randomRecipe, type CharacterRecipe } from '../character/recipe';
-import { loadAll, removeAll, saveOne } from '../storage';
+import { loadAll, loadIsland, removeAll, saveIsland, saveOne } from '../storage';
 import { button, el } from '../ui/dom';
 import { Agent, randomSpot, stepAgents, type World } from './behaviour';
 import { Bubbles } from './bubbles';
+import { Decorator } from './decorate';
 
 const MORNING = new THREE.Color('#f7e6d6');
 const NOON = new THREE.Color('#eef0e4');
@@ -25,6 +27,10 @@ export class Plaza implements Mode {
   private agents: Agent[] = [];
   private signatures = new Map<string, string>();
   private world: World;
+  private layout: IslandLayout;
+  private island: BuiltIsland;
+  private decorator: Decorator;
+  private tools = el('div', 'plaza-tools');
   private bubbles: Bubbles;
   private hemi: THREE.HemisphereLight;
   private background = new THREE.Color(MORNING);
@@ -42,21 +48,33 @@ export class Plaza implements Mode {
     this.scene.fog = new THREE.Fog(this.background, 30, 70);
     this.scene.environment = env;
     this.scene.environmentIntensity = 0.5;
-    this.hemi = addLights(this.scene, 10, new THREE.Vector3(6, 12, 8)).hemi;
+    this.hemi = addLights(this.scene, 13, new THREE.Vector3(6, 12, 8)).hemi;
 
-    const island = buildIsland();
-    this.scene.add(island.group);
-    this.world = island.world;
+    this.layout = loadIsland();
+    this.island = buildIsland(this.layout);
+    this.scene.add(this.island.group);
+    this.world = this.island.world;
 
-    this.camera.position.set(0, 11.5, 16.5);
+    const k = this.layout.radius / 7.5;
+    this.camera.position.set(0, 11.5 * k, 16.5 * k);
     this.controls = new OrbitControls(this.camera, renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.enablePan = false;
-    this.controls.minDistance = 7;
-    this.controls.maxDistance = 26;
     this.controls.minPolarAngle = 0.4;
     this.controls.maxPolarAngle = 1.2;
     this.controls.enabled = false;
+    this.fitToIsland();
+
+    this.decorator = new Decorator({
+      canvas: renderer.domElement,
+      camera: this.camera,
+      controls: this.controls,
+      ui: this.layer,
+      layout: () => this.layout,
+      island: () => this.island,
+      commit: (layout) => this.applyLayout(layout),
+      done: () => this.setDecorating(false),
+    });
 
     const bubbleLayer = el('div', 'bubble-layer');
     this.bubbles = new Bubbles(bubbleLayer, this.camera);
@@ -69,8 +87,9 @@ export class Plaza implements Mode {
       button('Make a character', 'btn', () => this.hooks.create()),
     );
 
-    const tools = el('div', 'plaza-tools');
+    const tools = this.tools;
     tools.append(
+      button('🛠 Decorate', 'btn', () => this.setDecorating(true)),
       button('🧹 Clear plaza', 'btn', () => this.clearAll()),
       button('＋ Random friend', 'btn', () => this.invite(1)),
       button('✏️ Make new', 'btn', () => this.hooks.create()),
@@ -96,6 +115,7 @@ export class Plaza implements Mode {
   }
 
   leave() {
+    if (this.decorator.active) this.setDecorating(false);
     this.active = false;
     this.controls.enabled = false;
     this.layer.style.display = 'none';
@@ -105,7 +125,9 @@ export class Plaza implements Mode {
 
   update(dt: number, t: number) {
     this.controls.update();
-    stepAgents(this.agents, this.world, dt, t, (a, text, delay) => this.say(a, text, delay));
+    // While decorating, everyone holds still.
+    if (!this.decorator.active) stepAgents(this.agents, this.world, dt, t, (a, text, delay) => this.say(a, text, delay));
+    this.decorator.update(dt, this.w, this.h);
     this.bubbles.update(this.w, this.h);
     // Slow drift between morning and midday light.
     const k = (Math.sin((t * Math.PI * 2) / 90) + 1) / 2;
@@ -119,6 +141,65 @@ export class Plaza implements Mode {
     this.h = h;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  // ---------- decorating ----------
+
+  private setDecorating(on: boolean) {
+    if (on === this.decorator.active) return;
+    this.tools.style.display = on ? 'none' : '';
+    this.card.style.display = 'none';
+    this.bubbles.clear();
+    // Characters step off the island while decorating, so anything can go anywhere.
+    for (const a of this.agents) a.built.root.visible = !on;
+    if (on) {
+      this.empty.style.display = 'none';
+      this.decorator.enter();
+    } else {
+      this.decorator.leave();
+      this.empty.style.display = this.agents.length ? 'none' : '';
+      this.returnToIsland();
+    }
+    this.fitToIsland();
+  }
+
+  /** After decorating: anyone whose spot is now taken (or off a smaller island) reappears somewhere free. */
+  private returnToIsland() {
+    const placed: Agent[] = [];
+    for (const a of this.agents) {
+      const blocked =
+        a.pos.length() > this.world.radius - a.radius - 0.2 ||
+        this.world.obstacles.some((o) => Math.hypot(a.pos.x - o.x, a.pos.y - o.z) < o.r + a.radius);
+      if (blocked) a.pos.copy(randomSpot(this.world, a.radius, placed));
+      a.state = 'idle';
+      a.partner = null;
+      a.timer = Math.random();
+      a.target.copy(a.pos);
+      placed.push(a);
+    }
+  }
+
+  /** Save a new island layout and rebuild the island from it. */
+  private applyLayout(layout: IslandLayout) {
+    saveIsland(layout);
+    this.layout = layout;
+    this.scene.remove(this.island.group);
+    disposeObject(this.island.group);
+    this.island = buildIsland(layout);
+    this.scene.add(this.island.group);
+    this.world = this.island.world;
+    this.fitToIsland();
+    this.decorator.refresh();
+  }
+
+  /** Camera zoom limits and fog that suit the island's size. Decorate mode may zoom out further, to fit narrow screens. */
+  private fitToIsland() {
+    const k = this.layout.radius / 7.5;
+    this.controls.minDistance = 6 * k;
+    this.controls.maxDistance = this.decorator?.active ? 120 : 30 * k;
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = this.decorator?.active ? 150 : 30 * k; // the decorating view can be far away on phones
+    fog.far = this.decorator?.active ? 300 : 70 * k;
   }
 
   /** Bring the plaza in line with what's saved: add newcomers, rebuild edited ones, remove deleted ones. */
@@ -151,7 +232,7 @@ export class Plaza implements Mode {
       }
       this.scene.add(built.root);
     }
-    this.empty.style.display = list.length ? 'none' : '';
+    this.empty.style.display = list.length || this.decorator.active ? 'none' : '';
   }
 
   private invite(count: number) {
@@ -173,6 +254,7 @@ export class Plaza implements Mode {
   }
 
   private pick(e: PointerEvent) {
+    if (this.decorator.active) return; // clicks belong to the decorations
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
