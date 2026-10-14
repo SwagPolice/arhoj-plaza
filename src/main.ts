@@ -3,14 +3,16 @@ import type { Mode } from './mode';
 import { createEnvironment, createRenderer } from './scene/stage';
 import { Editor } from './editor/editor';
 import { Plaza } from './plaza/plaza';
+import { Studio } from './studio/studio';
 import { DebugGrid } from './debug/grid';
 import { defaultRecipe } from './character/recipe';
-import { loadAll } from './storage';
+import { loadAll, loadMode, saveMode, type GameMode } from './storage';
 import { decodeCharacter, decodeIsland, ShareError } from './share';
 import { openBackupDialog, takeFlash } from './ui/backup-dialog';
+import { openStartScreen } from './ui/start-screen';
 import { button, el } from './ui/dom';
 
-type ModeName = 'make' | 'plaza';
+type ModeName = 'make' | 'plaza' | 'studio';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const stage = el('div', 'stage');
@@ -38,32 +40,52 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
       go('make');
     },
   });
-  const byName: Record<ModeName, Mode> = { make: editor, plaza };
-  modes.push(editor, plaza);
+  const studio = new Studio(renderer, env, ui);
+  if (import.meta.env.DEV) Object.assign(window, { __studio: studio }); // lets browser tests find things on screen
+  const byName: Record<ModeName, Mode> = { make: editor, plaza, studio };
+  modes.push(editor, plaza, studio);
 
+  // Creative shows Make and Plaza; Studio shows only its island. ⇄ switches, 💾 backs up both.
   const tabs = el('nav', 'tabs');
-  const tabButtons = {
+  const tabButtons: Record<ModeName, HTMLButtonElement> = {
     make: button('✏️ Make', '', () => openMaker()),
     plaza: button('🏝️ Plaza', '', () => go('plaza')),
+    studio: button('🏺 Studio', '', () => go('studio')),
   };
+  const switcher = button('⇄', 'tab-icon', () => openStartScreen(play, gameOf(currentName)));
+  switcher.title = 'Switch between Creative and Studio';
   const backup = button('💾', 'tab-icon', () => openBackupDialog());
   backup.title = 'Backup & move';
-  tabs.append(tabButtons.make, tabButtons.plaza, backup);
+  tabs.append(tabButtons.make, tabButtons.plaza, tabButtons.studio, switcher, backup);
   ui.append(tabs, el('div', 'fan-note', 'Fan project · not affiliated with Studio Arhoj'));
+
+  const gameOf = (name: ModeName): GameMode => (name === 'studio' ? 'studio' : 'creative');
+  let currentName: ModeName = 'plaza';
 
   function go(name: ModeName) {
     const next = byName[name];
+    currentName = name;
+    const game = gameOf(name);
+    saveMode(game);
+    tabButtons.make.style.display = tabButtons.plaza.style.display = game === 'creative' ? '' : 'none';
+    tabButtons.studio.style.display = game === 'studio' ? '' : 'none';
+    for (const [n, b] of Object.entries(tabButtons)) b.classList.toggle('on', n === name);
+    history.replaceState(null, '', `#${name}`);
     if (next === current) return;
     current?.leave();
     current = next;
     current.enter();
-    for (const [n, b] of Object.entries(tabButtons)) b.classList.toggle('on', n === name);
-    history.replaceState(null, '', `#${name}`);
+  }
+
+  /** Start (or switch to) a way of playing. */
+  function play(game: GameMode) {
+    if (game === 'studio') go('studio');
+    else go(loadAll().length ? 'plaza' : 'make');
   }
 
   const hashMode = (): ModeName | null => {
     const h = location.hash.slice(1);
-    return h === 'make' || h === 'plaza' ? h : null;
+    return h === 'make' || h === 'plaza' || h === 'studio' ? h : null;
   };
   // The Make tab opens a new character, so a saved one is never changed by accident.
   // (Editing a saved character goes through its card's Edit button instead.)
@@ -108,9 +130,17 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     return true;
   };
   window.addEventListener('hashchange', openFromAddress);
-  if (!openFromAddress()) go(loadAll().length ? 'plaza' : 'make');
+  if (!openFromAddress()) {
+    const saved = loadMode();
+    if (saved) play(saved);
+    else {
+      // First visit (or the first since Studio Mode arrived): show the island behind, and ask.
+      play('creative');
+      openStartScreen(play);
+    }
+  }
   const flash = takeFlash();
-  if (flash) plaza.toast(flash);
+  if (flash) ((currentName as ModeName) === 'studio' ? studio : plaza).toast(flash);
 }
 
 function resize() {

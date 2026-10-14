@@ -9,7 +9,7 @@ import {
   PERSONALITIES, REACH, WIDTH,
   copyOf, defaultRecipe, isGlass, isMetal, randomLayer, randomLooks, randomName, type CharacterRecipe, type Glass, type GlazeLayer,
 } from '../character/recipe';
-import { GLAZES, METALS, type Swatch } from '../character/palette';
+import { CLAY, GLAZES, METALS, type Swatch } from '../character/palette';
 import { loadAll, removeOne, saveOne } from '../storage';
 import { decodeCharacter, encodeCharacter, shareLink } from '../share';
 import { openImportDialog, openShareDialog } from '../ui/share-dialogs';
@@ -300,6 +300,11 @@ export class Editor implements Mode {
     if (isGlass(this.recipe)) return this.renderGlass();
     this.materialTitle.textContent = 'Glaze';
     const layers = this.recipe.layers;
+    if (!layers.length) {
+      // A bare clay character (from Studio Mode): offer a first glaze instead of the layer controls.
+      this.layersEl.replaceChildren(this.claySlider!, button('＋ Glaze', 'chip', () => this.setLayers([randomLayer(true)])));
+      return;
+    }
     this.selectedLayer = Math.min(this.selectedLayer, layers.length - 1);
     const i = this.selectedLayer;
     const layer = layers[i];
@@ -414,7 +419,7 @@ export class Editor implements Mode {
       const item = el('div', 'saved' + (r.id === this.recipe.id ? ' on' : ''));
       const open = button('', 'saved-open', () => this.load(r));
       const dotEl = el('span', 'saved-dot');
-      dotEl.style.background = isGlass(r) ? r.glass.cap : r.layers[r.layers.length - 1].colour;
+      dotEl.style.background = isGlass(r) ? r.glass.cap : (r.layers.at(-1)?.colour ?? CLAY);
       open.append(dotEl, el('span', '', r.name || 'Unnamed'));
       const del = button('×', 'saved-del', () => {
         if (!confirm(`Say goodbye to ${r.name}?`)) return;

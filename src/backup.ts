@@ -1,18 +1,20 @@
 /*
- * Backups: everything this browser knows (all characters and the island) in one file or code,
+ * Backups: everything this browser knows (Creative's characters and island, and the Studio) in one file or code,
  * to move a plaza to another browser or device. Same safety rules as share codes: a version number,
  * old backups keep loading (tests/backup.test.ts), and newer ones load as closely as possible.
  */
 import { normaliseRecipe, RECIPE_VERSION, type CharacterRecipe } from './character/recipe';
 import { LAYOUT_VERSION, normaliseLayout, type IslandLayout } from './scene/layout';
 import { BACKUP_PREFIX, codeFrom, codeKind, pack, ShareError, unpack } from './share';
+import { isFromNewerStudio, normaliseStudio, studioData, type StudioState } from './studio/state';
 
-export const BACKUP_VERSION = 1;
+// Version 2 added the Studio. Version 1 backups (Creative only) still restore: their studio is null.
+export const BACKUP_VERSION = 2;
 
-export type Backup = { characters: CharacterRecipe[]; island: IslandLayout; made: string | null };
+export type Backup = { characters: CharacterRecipe[]; island: IslandLayout; studio: StudioState | null; made: string | null };
 
 /** The backup as plain data: readable JSON, each part tagged with its own version. */
-export function backupData(characters: CharacterRecipe[], island: IslandLayout, made = new Date()) {
+export function backupData(characters: CharacterRecipe[], island: IslandLayout, made = new Date(), studio: StudioState | null = null) {
   return {
     app: 'arhoj-plaza',
     kind: 'backup',
@@ -20,14 +22,15 @@ export function backupData(characters: CharacterRecipe[], island: IslandLayout, 
     made: made.toISOString(),
     characters: characters.map((r) => ({ v: RECIPE_VERSION, ...r })),
     island: { v: LAYOUT_VERSION, ...island },
+    ...(studio ? { studio: studioData(studio) } : {}),
   };
 }
 
-export const backupFileText = (characters: CharacterRecipe[], island: IslandLayout) =>
-  JSON.stringify(backupData(characters, island), null, 1);
+export const backupFileText = (characters: CharacterRecipe[], island: IslandLayout, studio: StudioState | null = null) =>
+  JSON.stringify(backupData(characters, island, new Date(), studio), null, 1);
 
-export async function backupCode(characters: CharacterRecipe[], island: IslandLayout) {
-  return BACKUP_PREFIX + (await pack(backupData(characters, island)));
+export async function backupCode(characters: CharacterRecipe[], island: IslandLayout, studio: StudioState | null = null) {
+  return BACKUP_PREFIX + (await pack(backupData(characters, island, new Date(), studio)));
 }
 
 export const backupFileName = (date = new Date()) => `arhoj-plaza-backup-${date.toISOString().slice(0, 10)}.json`;
@@ -63,9 +66,15 @@ export async function readBackup(input: string): Promise<{ backup: Backup; fromN
   const fromNewer =
     newer(o, BACKUP_VERSION) ||
     newer(o.island, LAYOUT_VERSION) ||
+    isFromNewerStudio(o.studio) ||
     (Array.isArray(o.characters) && o.characters.some((c) => newer(c, RECIPE_VERSION)));
   return {
-    backup: { characters, island: normaliseLayout(o.island), made: typeof o.made === 'string' ? o.made : null },
+    backup: {
+      characters,
+      island: normaliseLayout(o.island),
+      studio: o.studio && typeof o.studio === 'object' ? normaliseStudio(o.studio) : null,
+      made: typeof o.made === 'string' ? o.made : null,
+    },
     fromNewer,
   };
 }

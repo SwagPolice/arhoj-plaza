@@ -259,8 +259,9 @@ const OLD_EYES: Record<string, Eyes> = { ring: 'open', dots: 'open', wide: 'open
 export function normaliseRecipe(raw: unknown): CharacterRecipe {
   const d = defaultRecipe();
   const o = upgrade((raw && typeof raw === 'object' ? raw : {}) as Raw);
+  // An empty list is a bare clay character (Studio Mode); only a missing list is old data.
   let layers = Array.isArray(o.layers) ? o.layers.slice(0, MAX_LAYERS).map(normaliseLayer) : [];
-  if (!layers.length) {
+  if (!Array.isArray(o.layers)) {
     // Characters saved before glaze layers existed.
     layers = [{
       ...defaultLayer(colour(o.glaze, d.layers[0].colour)),

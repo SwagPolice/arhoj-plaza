@@ -82,3 +82,25 @@ export const GOLDEN_BACKUP = {
   island: GOLDEN_ISLAND,
   made: '2026-10-14T12:00:00.000Z',
 };
+
+// A Studio save frozen when Studio Mode began (2026-10-14, studio v1): one bare ghost, one dipped,
+// a well, things on the ground, some held back and an uncollected "away" card. Never edit it.
+export const GOLDEN_STUDIO = {
+  v: 1,
+  characters: [
+    { ...NISSE, id: 'bare-1', name: 'Pip', layers: [] },
+    { ...NISSE, id: 'dipped-1', name: 'Mochi', layers: [{ colour: '#d8382f', finish: 'glossy', pattern: 'plain', patternColour: '#fffdf8', edge: 'clean', reach: 0.5 }] },
+  ],
+  island: { radius: 5, items: [{ id: 'well-abc', kind: 'well', x: 0.35, z: 0, size: 1, rot: 0 }] },
+  purse: { clay: 7, paint: { '#d8382f': 1 } },
+  ghostsMade: 2,
+  wellsBuilt: 1,
+  progress: { 'bare-1': 4.5, 'well-abc': 12 },
+  ground: [{ id: 'd1', x: 1, z: -1, what: 'clay', amount: 2 }, { id: 'd2', x: 0.5, z: 1, what: '#2f55b5', amount: 1 }],
+  held: { clay: 3, paint: {} },
+  away: { clay: 40, paint: { '#f2c230': 2 }, seconds: 3600 },
+  wellTints: { 'well-abc': '#2f55b5' },
+  firsts: ['well', 'paint'],
+  lastSeen: 1_792_000_000_000,
+  seed: 12345,
+};

@@ -4,6 +4,12 @@
 
 A tiny Mii-Plaza-style toy: make little ceramic characters (inspired by Studio Arhoj's cones, mushrooms and ghosts), then watch them potter around an island.
 
+Two ways to play, chosen on the start screen (⇄ switches any time):
+
+- **Creative**: everything unlocked. Make characters, decorate the island freely.
+- **Studio** (v0.1): start with one bare clay ghost on a tiny island. Tap the clay it drops, make more ghosts,
+  build a glaze well for paint, and dip your ghosts. The studio keeps working while you're away (up to 8 hours).
+
 ## Run it
 
 ```sh
@@ -28,9 +34,16 @@ as a new, unsaved character. Links look like `…/#import=arhoj1.…` and open s
 Islands work the same way from **🛠 Decorate**: **↗ Share island** and **Import island**. Island links look like
 `…/#island=arhojisle1.…`; opening one asks before replacing your island. Characters are never part of an island code.
 
+## Studio Mode
+
+The rules are pure functions in `src/studio/economy.ts` (rates, costs, time away), so live play and time away
+can't disagree; `tests/studio-economy.test.ts` checks the pacing (first well within about 6.5 minutes, first dip
+within about 8). The Studio save (`src/studio/state.ts`) follows the same safety rules as everything else.
+In development, `?fast` makes Studio time run 20 times faster.
+
 ## Backup & move
 
-**💾** (next to the tabs) saves everything (all characters and the island) as a file or a code, and restores one.
+**💾** (next to the tabs) saves everything (Creative's characters and island, and the Studio) as a file or a code, and restores one.
 Restoring asks whether to **Replace everything** (an exact copy) or **Add to mine** (only characters that aren't
 already here; the island only if ticked). Backups are versioned and tested like share codes (`tests/backup.test.ts`).
 
@@ -59,6 +72,8 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/plaza/decorate.ts` | Decorate mode |
 | `src/share.ts` | Share codes and links (characters and islands) |
 | `src/backup.ts` | Backups: everything in one file or code |
+| `src/scene/island-view.ts` | What the Creative plaza and the Studio share: island, camera, characters |
+| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), screen (`studio.ts`) |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing

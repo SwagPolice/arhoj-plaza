@@ -4,6 +4,8 @@ import { decodeCharacter, decodeIsland, ShareError } from '../src/share';
 import { randomRecipe } from '../src/character/recipe';
 import { defaultLayout, type IslandLayout } from '../src/scene/layout';
 import { GOLDEN, GOLDEN_BACKUPS, GOLDEN_ISLANDS } from './fixtures';
+import { GOLDEN_STUDIO } from './recipes';
+import { newStudio } from '../src/studio/state';
 
 const withoutIds = (l: IslandLayout) => ({ ...l, items: l.items.map(({ id: _, ...rest }) => rest) });
 
@@ -15,6 +17,11 @@ describe('old backups keep working', () => {
       expect(withoutIds(backup.island)).toEqual(withoutIds(g.expected.island));
       expect(backup.made).toBe(g.expected.made);
       expect(fromNewer).toBe(false);
+      // Version 1 backups have no Studio; version 2 ones carry it exactly.
+      if ('studio' in g) {
+        const { v: _, ...studio } = GOLDEN_STUDIO;
+        expect(backup.studio).toEqual(studio);
+      } else expect(backup.studio).toBeNull();
     });
   }
 });
@@ -27,6 +34,14 @@ describe('backups', () => {
     const { backup } = await readBackup(await backupCode(characters, island));
     expect(backup.characters).toEqual(characters);
     expect(backup.island).toEqual(island);
+  });
+
+  test('a backup carries the Studio too, exactly', async () => {
+    const studio = newStudio(1234);
+    const { backup } = await readBackup(await backupCode(characters, island, studio));
+    expect(backup.studio).toEqual(studio);
+    const { backup: none } = await readBackup(await backupCode(characters, island));
+    expect(none.studio).toBeNull(); // no Studio started yet: none in the backup
   });
 
   test('so does a backup file', async () => {

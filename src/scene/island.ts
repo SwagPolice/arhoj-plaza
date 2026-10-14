@@ -14,8 +14,12 @@ export type BuiltIsland = {
   decor: Map<string, THREE.Object3D>; // each decoration's own group, for picking and dragging
 };
 
-/** A round glazed-ceramic island floating on pale water, decorated as the layout says. */
-export function buildIsland(layout: IslandLayout): BuiltIsland {
+/**
+ * A round glazed-ceramic island floating on pale water, decorated as the layout says.
+ * `tints` colours a glaze well's water by its id (Studio Mode: the last colour it made).
+ * `flowers: false` leaves out the scattered flowers (Studio Mode, where they'd look like paint drops).
+ */
+export function buildIsland(layout: IslandLayout, tints: Record<string, string> = {}, flowers = true): BuiltIsland {
   const rand = mulberry32(7);
   const R = layout.radius;
   const group = new THREE.Group();
@@ -47,7 +51,12 @@ export function buildIsland(layout: IslandLayout): BuiltIsland {
   const decor = new Map<string, THREE.Object3D>();
   let treeCount = 0;
   for (const d of layout.items) {
-    const obj = d.kind === 'tree' ? makeTree(d, treeCount++) : d.kind === 'pond' ? makePond(d) : d.kind === 'rock' ? makeRock(d) : makeMushroom(d);
+    const obj =
+      d.kind === 'tree' ? makeTree(d, treeCount++)
+      : d.kind === 'pond' ? makePond(d)
+      : d.kind === 'rock' ? makeRock(d)
+      : d.kind === 'well' ? makeWell(d, tints[d.id])
+      : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
     obj.rotation.y = d.rot;
     obj.userData.decorId = d.id;
@@ -59,8 +68,8 @@ export function buildIsland(layout: IslandLayout): BuiltIsland {
   const big = layout.items.filter((d) => blocksWalking(d.kind));
   const free = (x: number, z: number) => big.every((o) => Math.hypot(x - o.x, z - o.z) > footprint(o) + 0.1);
   const flowerColours = ['#f2b8ae', '#e2b23f', '#fffaf2', '#a7cbe3'];
-  const flowers = Math.round(40 * (R / 7.5) ** 2);
-  for (let i = 0; i < flowers; i++) {
+  const flowerCount = flowers ? Math.round(40 * (R / 7.5) ** 2) : 0;
+  for (let i = 0; i < flowerCount; i++) {
     for (let tries = 0; tries < 30; tries++) {
       const r = (R - 0.6) * Math.sqrt(rand());
       const a = rand() * Math.PI * 2;
@@ -135,10 +144,24 @@ function makeMushroom(d: Decor) {
   return g;
 }
 
+const WELL: Pt[] = [[0, 0], [0.4, 0], [0.52, 0.04], [0.6, 0.22], [0.62, 0.4], [0.56, 0.46], [0.5, 0.42], [0.47, 0.34], [0, 0.34]];
+
+/** Glaze well (Studio Mode): a cream basin, its water the colour it last made. */
+function makeWell(d: Decor, tint = '#9fd0ee') {
+  const basin = new THREE.Mesh(latheFrom(WELL).geo, glaze('#efe5d0'));
+  const water = new THREE.Mesh(new THREE.CircleGeometry(0.47, 40), glaze(tint, { roughness: 0.05 }));
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.36;
+  const g = new THREE.Group().add(basin, water);
+  g.scale.setScalar(d.size);
+  return g;
+}
+
 /** Height of a decoration's top, for placing the Remove button above it. */
 export function decorHeight(d: Decor) {
   if (d.kind === 'tree') return 1.95 * d.size;
   if (d.kind === 'pond') return 0.3;
   if (d.kind === 'rock') return d.size * 0.8;
+  if (d.kind === 'well') return 0.5 * d.size;
   return 0.3 * d.size;
 }
