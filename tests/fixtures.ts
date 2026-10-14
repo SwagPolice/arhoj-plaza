@@ -1,4 +1,4 @@
-import { DRIPPY, NISSE, SHROOM, type Golden } from './recipes';
+import { DRIPPY, GOLDEN_ISLAND, NISSE, SHROOM, type Golden } from './recipes';
 
 /*
  * Golden share codes: real codes made by past versions of the game, with the character each must open as.
@@ -10,3 +10,9 @@ export const GOLDEN: { made: string; code: string; expected: Golden }[] = [
   { made: '2026-10-13, recipe v1', code: 'arhoj1.jZLNbsMgEIRfpZpeURS7dn64tqp6rNRj1cMa1jYKsRGQRDTKu1ckbeLcemNmd_kGsUfsIQuBgbYMiRdvnEsPJQQCs4Zcr5aLuhJoRp0g0bC1EOjZdH2ELGbzWuBgdOyzKASUpfT2W53PilrAUmIfID-PUKMddx4Sj2rdLLiCQGsGE3pIBIpmgICjGNkP2XGsNpZv3vN1vKzKp5IgwLrLsQ-0TxDwTKrP3PokprSyreumntI6O4aQ7nHRM23Cf3DaGxemvOqex3PSFU15W45krVF3RGdp-uQbr21b3a5uvJY0T3FFffoS6CyFAJnBPnc90prnKo9l4_UP3foxRNbZJpfbllTRUl30-zVMZ00-3tmTRGWzIsZJgBMHSETjz3dy4tt3r876w3xzVuuLcqTM0GVjIbAdd3lVcBl27MM4kDUx71boE04_', expected: DRIPPY },
   { made: '2026-10-13, recipe v1', code: 'arhoj1.VZBBa8MwDIX_y-vVlKRrRurroOw46HHsoDhyYnDsYDsdXul_H862ht2kpyfp491whawFHE0MicuVppkhEJl7yONBoPN9hsS0xDF4P0FgZDOMCbLePwl8mj6NkNW-bQSUpfz6O632BwFLmUOEfL9BeeuXAIkdnbhSLQS0cSaOkBisjzFDYKaUODhIzJaM25SXx7bWutdlm_uhICvLVIyBSa0gzf1DYLAUI2R5G4prp07dMx8hVuH891gHHxP3RaZ5vX7oWuKf_u0Bo7zTnJL5p29ItW6paXAX4Myx-IOPcT3LmbdAmrW_mC9eMy_1TMq4AbISmPxSkoTzrgDMHKJ3ZE0q8Xd-cSrj_g0', expected: SHROOM },
 ];
+
+/** Golden island codes, same rules: never edit or delete; add one when islands gain a feature. */
+export const GOLDEN_ISLANDS = [
+  { made: '2026-10-14, layout v1', code: 'arhojisle1.fc5BCoMwFIThu8w6PpIYrc1VShelBhpEUxKVonj3EkNsF6W72XzMv2KGFgz-1topQDdUM9jR9AH6sqKzQwuNpxtaMLygC0kVwwItqGEIdjFx1gzejdB8Y4cZvTHJKBI7KSTJj1HyLypUPIiqpHNWnE7VD-XdvUtKULkjFZOyqXOeIF59sX4KD-9cnygnlf5EzM2V5XF33d4', expected: GOLDEN_ISLAND },
+];
+

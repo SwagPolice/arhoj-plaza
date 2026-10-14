@@ -6,7 +6,7 @@ import { Plaza } from './plaza/plaza';
 import { DebugGrid } from './debug/grid';
 import { defaultRecipe } from './character/recipe';
 import { loadAll } from './storage';
-import { decodeCharacter, ShareError } from './share';
+import { decodeCharacter, decodeIsland, ShareError } from './share';
 import { button, el } from './ui/dom';
 
 type ModeName = 'make' | 'plaza';
@@ -82,14 +82,30 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     history.replaceState(null, '', '#make');
   }
 
-  window.addEventListener('hashchange', () => {
+  // Island links look like …#island=arhojisle1.xxxx and open the plaza, asking before replacing the island.
+  async function openIslandLink() {
+    const link = location.hash; // read it first: go() rewrites the address to #plaza
+    go('plaza');
+    try {
+      const { layout, fromNewer } = await decodeIsland(link);
+      plaza.importIsland(layout, fromNewer);
+    } catch (e) {
+      plaza.toast(e instanceof ShareError ? e.message : 'That island link could not be read.');
+    }
+    history.replaceState(null, '', '#plaza');
+  }
+
+  const openFromAddress = () => {
     const name = hashMode();
     if (location.hash.startsWith('#import=')) openShareLink();
+    else if (location.hash.startsWith('#island=')) openIslandLink();
     else if (name === 'make') openMaker();
     else if (name) go(name);
-  });
-  if (location.hash.startsWith('#import=')) openShareLink();
-  else go(hashMode() ?? (loadAll().length ? 'plaza' : 'make'));
+    else return false;
+    return true;
+  };
+  window.addEventListener('hashchange', openFromAddress);
+  if (!openFromAddress()) go(loadAll().length ? 'plaza' : 'make');
 }
 
 function resize() {

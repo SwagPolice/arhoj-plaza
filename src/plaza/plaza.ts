@@ -31,6 +31,8 @@ export class Plaza implements Mode {
   private island: BuiltIsland;
   private decorator: Decorator;
   private tools = el('div', 'plaza-tools');
+  private toastEl = el('div', 'toast plaza-toast');
+  private toastTimer = 0;
   private bubbles: Bubbles;
   private hemi: THREE.HemisphereLight;
   private background = new THREE.Color(MORNING);
@@ -96,7 +98,7 @@ export class Plaza implements Mode {
     );
 
     this.card.style.display = 'none';
-    this.layer.append(bubbleLayer, this.card, empty, tools);
+    this.layer.append(bubbleLayer, this.card, empty, tools, this.toastEl);
     this.layer.style.display = 'none';
     uiRoot.append(this.layer);
 
@@ -157,6 +159,22 @@ export class Plaza implements Mode {
     const r = this.layout.radius;
     const halfWidth = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect;
     return Math.max(r * 2.68, (r * 1.05) / halfWidth); // r × 2.68 is the original view on wide screens
+  }
+
+  /** An island from a share link: ask first, since it replaces the current one. */
+  importIsland(layout: IslandLayout, fromNewer: boolean) {
+    if (!confirm('Someone shared an island with you. Replace your island with it? Your current layout will be lost.')) return;
+    this.applyLayout(layout);
+    this.decorator.syncAfterImport();
+    this.returnToIsland();
+    this.toast(fromNewer ? 'Island imported. It was made with a newer version, so some things may be missing.' : 'Island imported!');
+  }
+
+  toast(text: string) {
+    this.toastEl.textContent = text;
+    this.toastEl.classList.add('show');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 3000);
   }
 
   // ---------- decorating ----------

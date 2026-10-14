@@ -148,7 +148,7 @@ export function obstaclesFor(layout: IslandLayout): Obstacle[] {
   return layout.items.filter((d) => blocksWalking(d.kind)).map((d) => ({ x: d.x, z: d.z, r: footprint(d) }));
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const round2 = (n: number) => Math.round(n * 100) / 100 || 0; // `|| 0` turns -0 into 0
 const newDecorId = (kind: DecorKind) => `${kind}-${Math.random().toString(36).slice(2, 8)}`;
 
 // ---------- loading saved data ----------

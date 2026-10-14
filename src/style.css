@@ -155,7 +155,7 @@ body {
 .decor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .decor-row > span { font-weight: 700; font-size: 14px; }
 .decor-row input[type='range'] { flex: 1; accent-color: var(--ink); }
-.decor-row:last-child { justify-content: flex-end; }
+.decor-spacer { flex: 1; }
 .decor-add .btn { flex: 1; white-space: nowrap; }
 .decor-tip { font-size: 13px; margin: 0; }
 .decor-hint { color: #a8502c; font-size: 13px; font-weight: 600; min-height: 1em; }
@@ -180,3 +180,6 @@ body {
   .decor-bar { bottom: 12px; width: calc(100vw - 24px); }
   .decor-add .btn { flex: 1 1 40%; }
 }
+
+.plaza-toast { bottom: 80px; }
+

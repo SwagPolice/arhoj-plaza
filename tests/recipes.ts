@@ -60,3 +60,16 @@ export const SHROOM: Golden = {
   mouth: 'none',
   personality: 'bouncy',
 };
+
+// An island frozen when island codes were introduced (2026-10-14): one of everything, a turned rock.
+export const GOLDEN_ISLAND = {
+  radius: 8.6,
+  items: [
+    { id: 'a', kind: 'pond' as const, x: -2.5, z: 1.8, size: 1.6, rot: 0 },
+    { id: 'b', kind: 'tree' as const, x: 4.1, z: -2.2, size: 1.42, rot: 0 },
+    { id: 'c', kind: 'tree' as const, x: -4.8, z: -3.9, size: 0.75, rot: 0 },
+    { id: 'd', kind: 'rock' as const, x: 1.3, z: 4.6, size: 0.66, rot: 1.05 },
+    { id: 'e', kind: 'mushroom' as const, x: 0.4, z: -1.1, size: 1.3, rot: 0 },
+  ],
+};
+

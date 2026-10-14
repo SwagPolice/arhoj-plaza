@@ -25,6 +25,9 @@ Characters and the island layout are stored in your browser (`localStorage`).
 In the maker, **↗ Share** gives a code (and a link) for the current character; **Import a code** adds a shared one
 as a new, unsaved character. Links look like `…/#import=arhoj1.…` and open straight into the maker.
 
+Islands work the same way from **🛠 Decorate**: **↗ Share island** and **Import island**. Island links look like
+`…/#island=arhojisle1.…`; opening one asks before replacing your island. Characters are never part of an island code.
+
 ## Changing characters safely
 
 Saved characters and share codes must keep working as the game grows. Before changing `src/character/recipe.ts`,
@@ -33,7 +36,7 @@ bump `RECIPE_VERSION` with a migration for changed meanings).
 
 The island layout (`src/scene/layout.ts`) follows the same rules, checked by `tests/island.test.ts`.
 
-`npm test` opens every frozen code in `tests/fixtures.ts` and checks it still gives the same character.
+`npm test` opens every frozen code in `tests/fixtures.ts` (characters and islands) and checks it still gives the same result.
 When you add a feature, add a code that uses it there. `npm run build` runs the tests too.
 
 ## Where things live
@@ -48,7 +51,7 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/scene/layout.ts` | The island as data: size, decorations, placement rules |
 | `src/scene/island.ts` | Builds the island and its decorations from a layout |
 | `src/plaza/decorate.ts` | Decorate mode |
-| `src/share.ts` | Share codes and links |
+| `src/share.ts` | Share codes and links (characters and islands) |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing

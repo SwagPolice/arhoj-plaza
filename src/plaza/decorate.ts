@@ -6,6 +6,8 @@ import {
   type Decor, type DecorKind, type IslandLayout,
 } from '../scene/layout';
 import { button, el } from '../ui/dom';
+import { decodeIsland, encodeIsland, islandLink } from '../share';
+import { openImportDialog, openShareDialog } from '../ui/share-dialogs';
 
 /** What Decorate mode needs from the plaza. */
 export type DecorateHost = {
@@ -88,11 +90,15 @@ export class Decorator {
 
     const endRow = el('div', 'decor-row');
     endRow.append(
+      button('↗ Share island', 'btn', () => this.share()),
+      button('Import island', 'btn', () => this.import()),
+      el('span', 'decor-spacer'),
       button('Reset island', 'btn', () => {
         if (!confirm('Put the island back the way it started?')) return;
         this.select(null);
         this.host.commit(defaultLayout());
         this.syncSize();
+        this.frame();
       }),
       button('Done', 'btn primary', () => this.host.done()),
     );
@@ -136,9 +142,14 @@ export class Decorator {
     this.active = true;
     this.bar.style.display = '';
     this.syncSize();
-    // A higher, more top-down view that fits the whole island.
     const { camera, controls } = this.host;
     this.savedView = { pos: camera.position.clone(), target: controls.target.clone() };
+    this.frame();
+  }
+
+  /** Ease to a higher, more top-down view that fits the whole island (again after an import or reset). */
+  private frame() {
+    const { camera } = this.host;
     // Aim a little in front of the middle, so the island sits above the bar.
     const r = this.host.layout().radius;
     const target = new THREE.Vector3(0, 0, r * 0.3);
@@ -216,6 +227,34 @@ export class Decorator {
     const id = this.selected;
     this.select(null);
     this.host.commit({ ...layout, items: layout.items.filter((d) => d.id !== id) });
+  }
+
+  private async share() {
+    const code = await encodeIsland(this.host.layout());
+    openShareDialog(
+      'Share your island',
+      "Anyone with this code or link can use your island's layout in their own plaza. Your characters stay with you.",
+      code,
+      islandLink(code),
+    );
+  }
+
+  private import() {
+    openImportDialog('Import an island', 'Paste an island code or link', async (text) => {
+      const { layout, fromNewer } = await decodeIsland(text); // a bad code shows its message in the dialog
+      if (!confirm('Replace your island with this one? Your current layout will be lost.')) return;
+      this.select(null);
+      this.host.commit(layout);
+      this.syncSize();
+      this.frame();
+      this.say(fromNewer ? 'Imported! It was made with a newer version, so some things may be missing.' : 'Island imported!');
+    });
+  }
+
+  /** Called when the page opens with an island link. */
+  syncAfterImport() {
+    this.select(null);
+    this.syncSize();
   }
 
   private turnSelected(delta: number) {
