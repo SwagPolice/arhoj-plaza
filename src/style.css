@@ -160,7 +160,21 @@ body {
 .decor-tip { font-size: 13px; margin: 0; }
 .decor-hint { color: #a8502c; font-size: 13px; font-weight: 600; min-height: 1em; }
 .decor-hint:empty { display: none; }
-.decor-remove { position: absolute; left: 0; top: 0; font-size: 13px; padding: 6px 10px; }
+.decor-tools {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.decor-tool { font-size: 16px; padding: 4px 10px; border-radius: 10px; line-height: 1.2; }
+.decor-tools-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 4px; }
+.decor-tools input[type='range'] { width: 110px; accent-color: var(--ink); }
 
 @media (max-width: 760px) {
   .decor-bar { bottom: 12px; width: calc(100vw - 24px); }

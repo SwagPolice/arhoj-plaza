@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
-  canPlace, defaultLayout, footprint, ISLAND_SIZE, LAYOUT_VERSION, MAX_DECOR, minRadius, nearestFreeSpot, normaliseLayout, obstaclesFor, placeNew,
+  canPlace, canTurn, defaultLayout, footprint, ISLAND_SIZE, LAYOUT_VERSION, MAX_DECOR, maxSizeHere, minRadius, nearestFreeSpot, normaliseLayout,
+  obstaclesFor, placeNew, SIZES,
   type Decor, type IslandLayout,
 } from '../src/scene/layout';
 
@@ -16,7 +17,7 @@ const SAVED_V1 = {
   ],
 };
 
-const tree = (x: number, z: number, size = 1): Decor => ({ id: `t${x},${z}`, kind: 'tree', x, z, size });
+const tree = (x: number, z: number, size = 1): Decor => ({ id: `t${x},${z}`, kind: 'tree', x, z, size, rot: 0 });
 
 describe('the default island', () => {
   test('is the island from before decorating existed', () => {
@@ -24,7 +25,7 @@ describe('the default island', () => {
     expect(d.radius).toBe(7.5);
     expect(d.items.filter((i) => i.kind === 'tree')).toHaveLength(5);
     expect(d.items.filter((i) => i.kind === 'rock')).toHaveLength(3);
-    expect(d.items.filter((i) => i.kind === 'pond')).toEqual([{ id: 'pond-1', kind: 'pond', x: -2.8, z: 2.6, size: 1.3 }]);
+    expect(d.items.filter((i) => i.kind === 'pond')).toEqual([{ id: 'pond-1', kind: 'pond', x: -2.8, z: 2.6, size: 1.3, rot: 0 }]);
     expect(d.items.filter((i) => i.kind === 'mushroom')).toHaveLength(6);
   });
 
@@ -36,9 +37,14 @@ describe('the default island', () => {
 });
 
 describe('loading saved islands', () => {
-  test('a layout saved by the first version still loads as it was', () => {
-    const { v: _, ...expected } = SAVED_V1;
-    expect(normaliseLayout(SAVED_V1)).toEqual(expected);
+  test('a layout saved by the first version still loads as it was (and nothing is turned)', () => {
+    const { v: _, ...saved } = SAVED_V1;
+    expect(normaliseLayout(SAVED_V1)).toEqual({ ...saved, items: saved.items.map((i) => ({ ...i, rot: 0 })) });
+  });
+
+  test('turns are kept between 0 and a full turn', () => {
+    const l = normaliseLayout({ radius: 8, items: [{ id: 'r', kind: 'rock', x: 0, z: 0, size: 0.4, rot: 7 }, { id: 's', kind: 'rock', x: 2, z: 0, size: 0.4, rot: -1 }] });
+    expect(l.items.map((i) => i.rot)).toEqual([0.72, 5.28]);
   });
 
   test('nothing or rubbish gives the default island', () => {
@@ -48,7 +54,7 @@ describe('loading saved islands', () => {
 
   test('a newer version: unknown objects are left out, the rest loads', () => {
     const l = normaliseLayout({ v: LAYOUT_VERSION + 1, radius: 8, items: [{ kind: 'castle', x: 0, z: 0 }, { id: 'r', kind: 'rock', x: 1, z: 1, size: 0.4 }] });
-    expect(l.items).toEqual([{ id: 'r', kind: 'rock', x: 1, z: 1, size: 0.4 }]);
+    expect(l.items).toEqual([{ id: 'r', kind: 'rock', x: 1, z: 1, size: 0.4, rot: 0 }]);
   });
 
   test('out-of-range sizes are clamped and stray objects pulled back onto the island', () => {
@@ -79,7 +85,7 @@ describe('placing things', () => {
 
   test('mushrooms may sit right next to a tree, but not inside it', () => {
     const layout = { ...empty, items: [tree(0, 0)] };
-    const m: Decor = { id: 'm', kind: 'mushroom', x: 0, z: 0, size: 1 };
+    const m: Decor = { id: 'm', kind: 'mushroom', x: 0, z: 0, size: 1, rot: 0 };
     expect(canPlace(layout, m, 0.8, 0)).toBe(true);
     expect(canPlace(layout, m, 0.3, 0)).toBe(false);
   });
@@ -100,7 +106,7 @@ describe('placing things', () => {
 
   test('dropping on a blocked spot lands on the nearest free spot instead', () => {
     // A tree dropped among mushrooms and next to another tree.
-    const mush = (x: number, z: number): Decor => ({ id: `m${x},${z}`, kind: 'mushroom', x, z, size: 1 });
+    const mush = (x: number, z: number): Decor => ({ id: `m${x},${z}`, kind: 'mushroom', x, z, size: 1, rot: 0 });
     const layout: IslandLayout = { radius: 7, items: [tree(0, 0), mush(2, 0.3), mush(2.3, -0.4), mush(1.6, -0.2)] };
     const moving = tree(-4, -4);
     const spot = nearestFreeSpot(layout, moving, 1.9, 0)!;
@@ -111,8 +117,23 @@ describe('placing things', () => {
   });
 
   test('when nothing fits anywhere, there is no spot', () => {
-    const full: IslandLayout = { radius: ISLAND_SIZE.min, items: [{ id: 'p', kind: 'pond', x: 0, z: 0, size: 2 }] };
-    expect(nearestFreeSpot(full, { id: 'q', kind: 'pond', x: 0, z: 0, size: 2 }, 1, 1)).toBeNull();
+    const full: IslandLayout = { radius: ISLAND_SIZE.min, items: [{ id: 'p', kind: 'pond', x: 0, z: 0, size: 2, rot: 0 }] };
+    expect(nearestFreeSpot(full, { id: 'q', kind: 'pond', x: 0, z: 0, size: 2, rot: 0 }, 1, 1)).toBeNull();
+  });
+
+  test('things can only grow as big as the space around them allows', () => {
+    const a = tree(0, 0, 1);
+    const layout: IslandLayout = { radius: 9, items: [a, tree(1.8, 0, 1.4)] }; // a big neighbour close by
+    const max = maxSizeHere(layout, a);
+    expect(max).toBeLessThan(SIZES.tree.max);
+    expect(canPlace(layout, { ...a, size: max }, 0, 0)).toBe(true);
+    expect(canPlace(layout, { ...a, size: max + 0.05 }, 0, 0)).toBe(false);
+    expect(maxSizeHere({ radius: 9, items: [a] }, a)).toBe(SIZES.tree.max); // nothing nearby: full size
+  });
+
+  test('only things that look different when turned can be turned', () => {
+    expect(canTurn('rock')).toBe(true);
+    expect(['tree', 'pond', 'mushroom'].some((k) => canTurn(k as Decor['kind']))).toBe(false);
   });
 
   test('the island can only shrink as far as its furthest object allows', () => {

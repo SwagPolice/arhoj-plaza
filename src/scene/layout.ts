@@ -10,8 +10,11 @@ import { between } from '../util/random';
 export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom'] as const;
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
-/** One decoration. `size` is a scale for trees and mushrooms, and a radius for ponds and rocks. */
-export type Decor = { id: string; kind: DecorKind; x: number; z: number; size: number };
+/**
+ * One decoration. `size` is a scale for trees and mushrooms, and a radius for ponds and rocks.
+ * `rot` is how far it's turned, in radians (added after version 1 shipped; missing means 0).
+ */
+export type Decor = { id: string; kind: DecorKind; x: number; z: number; size: number; rot: number };
 export type IslandLayout = { radius: number; items: Decor[] };
 
 export const ISLAND_SIZE = { min: 5, max: 11 };
@@ -24,6 +27,9 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   rock: { min: 0.2, max: 0.8 },
   mushroom: { min: 0.6, max: 1.6 },
 };
+
+/** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
+export const canTurn = (kind: DecorKind) => kind === 'rock';
 
 /** Trees, ponds and rocks block walking and can't overlap each other; mushrooms are little and walk-through. */
 export const blocksWalking = (kind: DecorKind) => kind !== 'mushroom';
@@ -44,10 +50,10 @@ export function defaultLayout(): IslandLayout {
   return {
     radius: 7.5,
     items: [
-      { id: 'pond-1', kind: 'pond', x: -2.8, z: 2.6, size: 1.3 },
-      ...trees.map(([x, z, size], i) => ({ id: `tree-${i + 1}`, kind: 'tree' as const, x, z, size })),
-      ...rocks.map(([x, z, size], i) => ({ id: `rock-${i + 1}`, kind: 'rock' as const, x, z, size })),
-      ...mushrooms.map(([x, z], i) => ({ id: `mushroom-${i + 1}`, kind: 'mushroom' as const, x, z, size: 1 })),
+      { id: 'pond-1', kind: 'pond', x: -2.8, z: 2.6, size: 1.3, rot: 0 },
+      ...trees.map(([x, z, size], i) => ({ id: `tree-${i + 1}`, kind: 'tree' as const, x, z, size, rot: 0 })),
+      ...rocks.map(([x, z, size], i) => ({ id: `rock-${i + 1}`, kind: 'rock' as const, x, z, size, rot: 0 })),
+      ...mushrooms.map(([x, z], i) => ({ id: `mushroom-${i + 1}`, kind: 'mushroom' as const, x, z, size: 1, rot: 0 })),
     ],
   };
 }
@@ -73,7 +79,7 @@ export function placeNew(layout: IslandLayout, kind: DecorKind): Decor | null {
   if (layout.items.length >= MAX_DECOR) return null;
   const size =
     kind === 'tree' ? round2(between(0.9, 1.3)) : kind === 'pond' ? round2(between(1.1, 1.4)) : kind === 'rock' ? round2(between(0.3, 0.5)) : 1;
-  const item: Decor = { id: newDecorId(kind), kind, x: 0, z: 0, size };
+  const item: Decor = { id: newDecorId(kind), kind, x: 0, z: 0, size, rot: 0 };
   const start = Math.random() * Math.PI * 2; // so new things don't always line up the same way
   for (let r = 0; r <= layout.radius; r += 0.35) {
     const steps = Math.max(1, Math.ceil((2 * Math.PI * r) / 0.35));
@@ -110,6 +116,26 @@ export function nearestFreeSpot(layout: IslandLayout, item: Decor, x: number, z:
   }
   return null;
 }
+
+/** The biggest this item can grow where it stands without overlapping anything or leaving the island. */
+export function maxSizeHere(layout: IslandLayout, item: Decor): number {
+  const { min, max } = SIZES[item.kind];
+  const fits = (size: number) => canPlace(layout, { ...item, size }, item.x, item.z);
+  if (fits(max)) return max;
+  if (!fits(min)) return Math.max(min, Math.min(item.size, max));
+  let lo = min;
+  let hi = max;
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return Math.floor(lo * 100) / 100;
+}
+
+const TAU = Math.PI * 2;
+/** Turn by `delta` radians, kept between 0 and a full turn. */
+export const turned = (rot: number, delta: number) => round2((((rot + delta) % TAU) + TAU) % TAU);
 
 /** The smallest island that still fits everything on it. */
 export function minRadius(layout: IslandLayout): number {
@@ -163,7 +189,8 @@ export function normaliseLayout(raw: unknown): IslandLayout {
     const dist = Math.hypot(x, z);
     if (dist > max) [x, z] = [round2((x / dist) * Math.max(0, max)), round2((z / dist) * Math.max(0, max))];
     const id = typeof d.id === 'string' && d.id && !items.some((i) => i.id === d.id) ? d.id : newDecorId(kind);
-    items.push({ id, kind, x, z, size });
+    const rot = typeof d.rot === 'number' && Number.isFinite(d.rot) ? turned(d.rot, 0) : 0;
+    items.push({ id, kind, x, z, size, rot });
   }
   return { radius, items };
 }

@@ -49,6 +49,7 @@ export function buildIsland(layout: IslandLayout): BuiltIsland {
   for (const d of layout.items) {
     const obj = d.kind === 'tree' ? makeTree(d, treeCount++) : d.kind === 'pond' ? makePond(d) : d.kind === 'rock' ? makeRock(d) : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
+    obj.rotation.y = d.rot;
     obj.userData.decorId = d.id;
     decor.set(d.id, obj);
     group.add(obj);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { decorHeight, type BuiltIsland } from '../scene/island';
 import {
-  canPlace, defaultLayout, footprint, ISLAND_SIZE, MAX_DECOR, minRadius, nearestFreeSpot, placeNew,
+  canPlace, canTurn, defaultLayout, footprint, ISLAND_SIZE, MAX_DECOR, maxSizeHere, minRadius, nearestFreeSpot, placeNew, SIZES, turned,
   type Decor, type DecorKind, type IslandLayout,
 } from '../scene/layout';
 import { button, el } from '../ui/dom';
@@ -46,7 +46,7 @@ const RED = new THREE.Color('#e0452f');
 const GLOW = new THREE.Color('#5c4620');
 
 /**
- * Decorate mode: resize the island, add things, drag them around, remove them.
+ * Decorate mode: resize the island, add things, drag them around, and turn, resize or remove them.
  * Dragging an object never turns the camera; dragging empty ground still does.
  */
 export class Decorator {
@@ -54,7 +54,10 @@ export class Decorator {
   private bar = el('div', 'decor-bar');
   private hint = el('div', 'decor-hint');
   private size = el('input');
-  private remove = button('✕ Remove', 'btn decor-remove', () => this.removeSelected());
+  /** The little toolbar above the selected object: turn, size, remove. */
+  private tools = el('div', 'decor-tools');
+  private toolSize = el('input');
+  private turnButtons: HTMLButtonElement[] = [];
   private selected: string | null = null;
   private drag: Drag | null = null;
   /** An object sliding to where it ends up; `then` runs when it gets there. */
@@ -94,9 +97,29 @@ export class Decorator {
       button('Done', 'btn primary', () => this.host.done()),
     );
 
-    this.bar.append(sizeRow, el('div', 'muted decor-tip', 'Drag things to move them · tap one to remove it'), addRow, this.hint, endRow);
-    this.bar.style.display = this.remove.style.display = 'none';
-    host.ui.append(this.bar, this.remove);
+    this.toolSize.type = 'range';
+    this.toolSize.step = '0.01';
+    this.toolSize.title = 'Size';
+    this.toolSize.addEventListener('input', () => this.resizeSelected(parseFloat(this.toolSize.value)));
+    const tool = (label: string, title: string, run: () => void) => {
+      const b = button(label, 'btn decor-tool', run);
+      b.title = title;
+      return b;
+    };
+    this.turnButtons = [
+      tool('↺', 'Turn left', () => this.turnSelected(Math.PI / 6)),
+      tool('↻', 'Turn right', () => this.turnSelected(-Math.PI / 6)),
+    ];
+    this.tools.append(
+      ...this.turnButtons,
+      el('span', 'decor-tools-label', 'Size'),
+      this.toolSize,
+      tool('✕', 'Remove', () => this.removeSelected()),
+    );
+
+    this.bar.append(sizeRow, el('div', 'muted decor-tip', 'Drag things to move them · tap one to turn, resize or remove it'), addRow, this.hint, endRow);
+    this.bar.style.display = this.tools.style.display = 'none';
+    host.ui.append(this.bar, this.tools);
 
     this.marker.rotation.x = -Math.PI / 2;
     this.marker.visible = false;
@@ -154,14 +177,18 @@ export class Decorator {
     const item = this.item(this.selected);
     const obj = this.selected ? this.host.island().decor.get(this.selected) : null;
     if (!item || !obj || this.drag) {
-      this.remove.style.display = 'none';
+      this.tools.style.display = 'none';
       return;
     }
     obj.getWorldPosition(this.v);
     this.v.y += decorHeight(item) + 0.25;
     this.v.project(this.host.camera);
-    this.remove.style.display = this.v.z < 1 ? '' : 'none';
-    this.remove.style.transform = `translate(${((this.v.x + 1) / 2) * width}px, ${((1 - this.v.y) / 2) * height}px) translate(-50%, -100%)`;
+    this.tools.style.display = this.v.z < 1 ? '' : 'none';
+    // Above the object, but never off the side of the screen.
+    const half = this.tools.offsetWidth / 2;
+    const x = Math.min(width - half - 8, Math.max(half + 8, ((this.v.x + 1) / 2) * width));
+    const y = Math.max(this.tools.offsetHeight + 8, ((1 - this.v.y) / 2) * height);
+    this.tools.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
   }
 
   /** After the island is rebuilt, re-apply the selection highlight to the new objects. */
@@ -191,6 +218,31 @@ export class Decorator {
     this.host.commit({ ...layout, items: layout.items.filter((d) => d.id !== id) });
   }
 
+  private turnSelected(delta: number) {
+    const item = this.item(this.selected);
+    if (!item || !canTurn(item.kind)) return;
+    this.update1(item.id, { rot: turned(item.rot, delta) });
+  }
+
+  private resizeSelected(value: number) {
+    const item = this.item(this.selected);
+    if (!item) return;
+    const room = maxSizeHere(this.host.layout(), item);
+    let size = Math.round(value * 100) / 100;
+    if (size > room) {
+      size = room;
+      this.toolSize.value = String(room);
+      this.say('No room to grow here. Move it somewhere roomier first.');
+    }
+    if (size !== item.size) this.update1(item.id, { size });
+  }
+
+  /** Change one object and save. */
+  private update1(id: string, patch: Partial<Decor>) {
+    const layout = this.host.layout();
+    this.host.commit({ ...layout, items: layout.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
+  }
+
   private resize(value: number) {
     const layout = this.host.layout();
     const smallest = minRadius(layout);
@@ -211,6 +263,14 @@ export class Decorator {
     if (this.selected) tint(this.host.island().decor.get(this.selected), null);
     this.selected = id;
     if (id) tint(this.host.island().decor.get(id), 'selected');
+    const item = this.item(id);
+    if (item) {
+      // Turning only shows up for things that aren't round from above.
+      for (const b of this.turnButtons) b.style.display = canTurn(item.kind) ? '' : 'none';
+      this.toolSize.min = String(SIZES[item.kind].min);
+      this.toolSize.max = String(SIZES[item.kind].max);
+      this.toolSize.value = String(item.size);
+    }
   }
 
   private say(text: string) {
