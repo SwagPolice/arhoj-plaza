@@ -7,6 +7,7 @@ import { DebugGrid } from './debug/grid';
 import { defaultRecipe } from './character/recipe';
 import { loadAll } from './storage';
 import { decodeCharacter, decodeIsland, ShareError } from './share';
+import { openBackupDialog, takeFlash } from './ui/backup-dialog';
 import { button, el } from './ui/dom';
 
 type ModeName = 'make' | 'plaza';
@@ -45,7 +46,9 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
     make: button('✏️ Make', '', () => openMaker()),
     plaza: button('🏝️ Plaza', '', () => go('plaza')),
   };
-  tabs.append(tabButtons.make, tabButtons.plaza);
+  const backup = button('💾', 'tab-icon', () => openBackupDialog());
+  backup.title = 'Backup & move';
+  tabs.append(tabButtons.make, tabButtons.plaza, backup);
   ui.append(tabs, el('div', 'fan-note', 'Fan project · not affiliated with Studio Arhoj'));
 
   function go(name: ModeName) {
@@ -106,6 +109,8 @@ if (new URLSearchParams(location.search).get('debug') === 'grid') {
   };
   window.addEventListener('hashchange', openFromAddress);
   if (!openFromAddress()) go(loadAll().length ? 'plaza' : 'make');
+  const flash = takeFlash();
+  if (flash) plaza.toast(flash);
 }
 
 function resize() {

@@ -28,6 +28,12 @@ as a new, unsaved character. Links look like `…/#import=arhoj1.…` and open s
 Islands work the same way from **🛠 Decorate**: **↗ Share island** and **Import island**. Island links look like
 `…/#island=arhojisle1.…`; opening one asks before replacing your island. Characters are never part of an island code.
 
+## Backup & move
+
+**💾** (next to the tabs) saves everything (all characters and the island) as a file or a code, and restores one.
+Restoring asks whether to **Replace everything** (an exact copy) or **Add to mine** (only characters that aren't
+already here; the island only if ticked). Backups are versioned and tested like share codes (`tests/backup.test.ts`).
+
 ## Changing characters safely
 
 Saved characters and share codes must keep working as the game grows. Before changing `src/character/recipe.ts`,
@@ -52,6 +58,7 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/scene/island.ts` | Builds the island and its decorations from a layout |
 | `src/plaza/decorate.ts` | Decorate mode |
 | `src/share.ts` | Share codes and links (characters and islands) |
+| `src/backup.ts` | Backups: everything in one file or code |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing

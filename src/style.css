@@ -183,3 +183,9 @@ body {
 
 .plaza-toast { bottom: 80px; }
 
+.tabs .tab-icon { padding: 8px 12px; font-size: 16px; }
+.backup-heading { margin: 16px 0 6px; font-size: 15px; }
+.backup-summary { font-weight: 600; margin: 8px 0 4px; }
+.backup-check { display: flex; align-items: center; gap: 6px; font-size: 14px; margin: 6px 0; }
+.btn.danger { border-color: #c4643c; color: #a8502c; }
+.btn.danger:hover { background: #c4643c; color: #fff8ef; }

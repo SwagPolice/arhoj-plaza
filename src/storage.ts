@@ -33,6 +33,11 @@ export function removeOne(id: string) {
   writeAll(loadAll().filter((r) => r.id !== id));
 }
 
+/** Replace every saved character at once (restoring a backup). */
+export function replaceAll(list: CharacterRecipe[]) {
+  writeAll(list);
+}
+
 export function removeAll() {
   writeAll([]);
 }

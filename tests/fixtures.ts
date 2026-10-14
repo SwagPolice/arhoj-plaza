@@ -1,4 +1,4 @@
-import { DRIPPY, GOLDEN_ISLAND, NISSE, SHROOM, type Golden } from './recipes';
+import { DRIPPY, GOLDEN_BACKUP, GOLDEN_ISLAND, NISSE, SHROOM, type Golden } from './recipes';
 
 /*
  * Golden share codes: real codes made by past versions of the game, with the character each must open as.
@@ -16,3 +16,7 @@ export const GOLDEN_ISLANDS = [
   { made: '2026-10-14, layout v1', code: 'arhojisle1.fc5BCoMwFIThu8w6PpIYrc1VShelBhpEUxKVonj3EkNsF6W72XzMv2KGFgz-1topQDdUM9jR9AH6sqKzQwuNpxtaMLygC0kVwwItqGEIdjFx1gzejdB8Y4cZvTHJKBI7KSTJj1HyLypUPIiqpHNWnE7VD-XdvUtKULkjFZOyqXOeIF59sX4KD-9cnygnlf5EzM2V5XF33d4', expected: GOLDEN_ISLAND },
 ];
 
+/** Golden backup codes, same rules. */
+export const GOLDEN_BACKUPS = [
+  { made: '2026-10-14, backup v1', code: 'arhojbak1.tZTBb5swGMX_l7erg4wDjPo6adppmtSdNvVgjAleASObdCVV_vfpIyGQtFVPO_LBz-_Z7-EXqL6HhPK1-7PpG3VQYHi0XQmJQunHfQ-GJ8iYoVWlgYTgItvEfBMnP2MhOZecR5zzX2DQtfJKD8YHyN8vZ6xTLWHfbQgGDMGYEjIW2yRlKFw5QmJXuzCAoTZ2Vw-QcSQY_tpyqCF5dMegGzV-O7_kkRAMjRpnGe0at_eQ-FR9rhJDIpXtbKhp5caFMIKhV8NgfAeJvlG2WyZfFrqqyioHgyl35Fg3RtGH3ig9GUmPbK1W5ttcVB-olW4Ib4rNVt8Ty8TxgWHXqBAgSdabiRNFroijwddZOLjGljRU_fQRz5VITs8_bq0ss8WNqNK0SHFkMKMJkHC9ITdmNMuxb9NpcG8P5hwRPfVK225H76kibk-ZoXMdeeyND65TjR0oZa2aFgyWqtVRGzYx6ESvanL_pNp-6UkiLiVp96H2zrVXPdmuepKnr4ryTk_UneE6_489eSs5fVdkJrlNrvIuDGad3SXgdXbadZUZBvtOfnGVq3Sdn_YuhGnZqwivErzJ74P0Crfv9Djnd4qCAnxgsKFRdGHMUXpV2n2AzKOMwQ6mPZ3_BK6ul951ZPAZciPI2YECzRnCuWAZg3dkm0oywcUCD376e54hEyreYVpELDAV54bWb9GbhCQJ39JFc8J59Dl9hZcL7p1-POFTAw9kIlvgbHYeRzy98GbhV1V-JiA5OYhpJ_MGthcDD8fjPw', expected: GOLDEN_BACKUP },
+];

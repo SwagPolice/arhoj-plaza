@@ -8,8 +8,18 @@ import { LAYOUT_VERSION, normaliseLayout, type IslandLayout } from './scene/layo
  */
 const PREFIX = 'arhoj1.';
 const ISLAND_PREFIX = 'arhojisle1.';
+export const BACKUP_PREFIX = 'arhojbak1.';
 
 export class ShareError extends Error {}
+
+/** What kind of code a piece of text is, judging by its prefix. */
+export function codeKind(text: string): 'character' | 'island' | 'backup' | null {
+  const t = text.trim();
+  if (t.startsWith(PREFIX)) return 'character';
+  if (t.startsWith(ISLAND_PREFIX)) return 'island';
+  if (t.startsWith(BACKUP_PREFIX)) return 'backup';
+  return null;
+}
 
 export async function encodeCharacter(r: CharacterRecipe): Promise<string> {
   const data: Partial<CharacterRecipe> & { v: number } = { v: RECIPE_VERSION, ...r };
@@ -29,6 +39,7 @@ export const islandLink = (code: string) => `${location.origin}${location.pathna
 export async function decodeIsland(input: string): Promise<{ layout: IslandLayout; fromNewer: boolean }> {
   const text = codeFrom(input, '#island=');
   if (text.startsWith(PREFIX)) throw new ShareError('That\'s a character code. Import it in the ✏️ Make tab instead.');
+  if (text.startsWith(BACKUP_PREFIX)) throw new ShareError("That's a backup code. Restore it with 💾 Backup at the top instead.");
   if (!text.startsWith(ISLAND_PREFIX)) throw new ShareError("That doesn't look like an island code.");
   const raw = await unpack(text.slice(ISLAND_PREFIX.length));
   const v = (raw as { v?: unknown }).v;
@@ -41,24 +52,25 @@ export const shareLink = (code: string) => `${location.origin}${location.pathnam
 export async function decodeCharacter(input: string): Promise<{ recipe: CharacterRecipe; fromNewer: boolean }> {
   const text = codeFrom(input, '#import=');
   if (text.startsWith(ISLAND_PREFIX)) throw new ShareError("That's an island code. Import it from 🛠 Decorate in the plaza instead.");
+  if (text.startsWith(BACKUP_PREFIX)) throw new ShareError("That's a backup code. Restore it with 💾 Backup at the top instead.");
   if (!text.startsWith(PREFIX)) throw new ShareError("That doesn't look like a character code.");
   const raw = await unpack(text.slice(PREFIX.length));
   return { recipe: { ...normaliseRecipe(raw), id: newId() }, fromNewer: isFromNewerVersion(raw) };
 }
 
 /** The code part of pasted text: accepts a bare code or a whole link, ignores spaces and line breaks. */
-function codeFrom(input: string, linkKey: string) {
+export function codeFrom(input: string, linkKey: string) {
   let text = input.trim();
   const link = text.indexOf(linkKey);
   if (link >= 0) text = text.slice(link + linkKey.length);
   return text.replace(/\s+/g, '');
 }
 
-async function pack(data: unknown): Promise<string> {
+export async function pack(data: unknown): Promise<string> {
   return toBase64Url(await pipe(new TextEncoder().encode(JSON.stringify(data)), new CompressionStream('deflate-raw')));
 }
 
-async function unpack(body: string): Promise<object> {
+export async function unpack(body: string): Promise<object> {
   let raw: unknown;
   try {
     const bytes = await pipe(fromBase64Url(body), new DecompressionStream('deflate-raw'));

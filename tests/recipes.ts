@@ -73,3 +73,12 @@ export const GOLDEN_ISLAND = {
   ],
 };
 
+// A backup frozen when backups were introduced (2026-10-14): two characters (with their ids) and an island.
+export const GOLDEN_BACKUP = {
+  characters: [
+    { ...NISSE, id: 'nisse-1' },
+    { ...SHROOM, id: 'shroom-1' },
+  ],
+  island: GOLDEN_ISLAND,
+  made: '2026-10-14T12:00:00.000Z',
+};

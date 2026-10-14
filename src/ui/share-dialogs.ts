@@ -7,20 +7,7 @@ export function openShareDialog(title: string, blurb: string, code: string, link
   box.readOnly = true;
   box.value = code;
   box.addEventListener('focus', () => box.select());
-  const copy = (label: string, text: string) => {
-    const b = button(label, 'btn', async () => {
-      try {
-        await navigator.clipboard.writeText(text);
-        b.textContent = 'Copied ✓';
-      } catch {
-        box.select(); // clipboard blocked: leave it selected for ⌘C
-        b.textContent = 'Press ⌘C to copy';
-      }
-      setTimeout(() => (b.textContent = label), 1800);
-    });
-    return b;
-  };
-  openDialog(title, [el('p', 'muted', blurb), box, row(copy('Copy code', code), copy('Copy link', link))]);
+  openDialog(title, [el('p', 'muted', blurb), box, row(copyButton('Copy code', () => code, box), copyButton('Copy link', () => link, box))]);
 }
 
 /** Import dialog: paste a code, `use` reads it. Problems with the code are shown in the dialog. */
@@ -45,14 +32,33 @@ export function openImportDialog(title: string, placeholder: string, use: (text:
   box.focus();
 }
 
-function row(...children: HTMLElement[]) {
+/** A button that copies text, with a fallback when the browser blocks the clipboard. */
+export function copyButton(label: string, text: () => string | Promise<string>, fallback?: HTMLTextAreaElement) {
+  const b = button(label, 'btn', async () => {
+    const value = await text();
+    try {
+      await navigator.clipboard.writeText(value);
+      b.textContent = 'Copied ✓';
+    } catch {
+      if (fallback) {
+        fallback.value = value;
+        fallback.select(); // leave it selected for ⌘C
+      }
+      b.textContent = 'Press ⌘C to copy';
+    }
+    setTimeout(() => (b.textContent = label), 1800);
+  });
+  return b;
+}
+
+export function row(...children: HTMLElement[]) {
   const r = el('div', 'actions');
   r.append(...children);
   return r;
 }
 
 /** A small modal with a title and a Close button. Removes itself when closed. */
-function openDialog(title: string, body: HTMLElement[]) {
+export function openDialog(title: string, body: HTMLElement[]) {
   const d = el('dialog', 'dialog');
   const close = button('×', 'dialog-close', () => d.close());
   close.title = 'Close';
