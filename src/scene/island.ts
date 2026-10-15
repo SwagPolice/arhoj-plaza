@@ -59,6 +59,9 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'bowl' ? makeBowl(d)
       : d.kind === 'shell' ? makeShell(d)
       : d.kind === 'seaglass' ? makeSeaGlass(d)
+      : d.kind === 'harbour' ? makeHarbour()
+      : d.kind === 'driftwood' ? makeDriftwood(d)
+      : d.kind === 'coral' ? makeCoral(d)
       : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
     obj.rotation.y = d.rot;
@@ -213,6 +216,90 @@ function makeSeaGlass(d: Decor) {
   return g;
 }
 
+const HULL: Pt[] = [[0, 0], [0.12, 0.005], [0.22, 0.04], [0.28, 0.12], [0.3, 0.2], [0.27, 0.22], [0.24, 0.15], [0, 0.13]];
+
+/**
+ * Harbour (Studio Mode): a pale plank pier reaching out from the edge over the water, on posts, with a little
+ * round boat moored at its end (the child named 'boat') and a crate for what expeditions bring (named 'crate').
+ * Built facing +z; the layout turns it to face out to sea.
+ */
+function makeHarbour() {
+  const g = new THREE.Group();
+  const plank = glaze('#e8dcc4', { roughness: 0.6, clearcoat: 0.2 });
+  const post = glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
+  for (let i = 0; i < 9; i++) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.22), plank);
+    p.position.set(0, 0.15, -0.35 + i * 0.25); // just above the island's rim
+    p.rotation.y = (i % 2 ? 1 : -1) * 0.015;
+    g.add(p);
+  }
+  for (const [x, z, top] of [[-0.29, -0.3, 0.13], [0.29, -0.3, 0.13], [-0.29, 0.9, 0.13], [0.29, 0.9, 0.13], [-0.29, 1.75, 0.13], [0.29, 1.75, 0.13]]) {
+    const bottom = z < 0.5 ? 0 : -1.12; // on the grass, or down into the water
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, top - bottom, 10), post);
+    p.position.set(x, (top + bottom) / 2, z);
+    g.add(p);
+  }
+  const boat = new THREE.Group();
+  boat.name = 'boat';
+  const hull = new THREE.Mesh(latheFrom(HULL, 32).geo, glaze('#f7f4ee'));
+  hull.scale.set(1.15, 1.2, 1.9);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.018, 8, 32), glaze('#2f55b5'));
+  rim.rotation.x = Math.PI / 2;
+  rim.scale.set(1.15, 1.9, 1);
+  rim.position.y = 0.21 * 1.2;
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.1), glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 }));
+  seat.position.set(0, 0.2, -0.12);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.75, 8), glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 }));
+  mast.position.set(0, 0.55, 0.08);
+  const sailShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0, 0.6), new THREE.Vector2(0.36, 0.04)]);
+  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), glaze('#f6efe2', { side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 }));
+  sail.rotation.y = -Math.PI / 2; // along the boat
+  sail.position.set(0, 0.28, 0.1);
+  boat.add(hull, rim, seat, mast, sail);
+  boat.position.set(0.72, -1.12, 1.45);
+  g.add(boat);
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.3), glaze('#c79a62', { roughness: 0.7, clearcoat: 0 }));
+  crate.name = 'crate';
+  crate.position.set(0.12, 0.29, 0.15);
+  crate.rotation.y = 0.3;
+  crate.visible = false;
+  g.add(crate);
+  return g;
+}
+
+/** A piece of driftwood: a pale, weathered log with a stub of a branch. */
+function makeDriftwood(d: Decor) {
+  const wood = glaze('#d9cdb8', { roughness: 0.75, clearcoat: 0 });
+  const log = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.42, 4, 10), wood);
+  log.rotation.z = Math.PI / 2;
+  log.position.y = 0.06;
+  const stub = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.12, 4, 8), wood);
+  stub.rotation.set(0, 0, 0.9);
+  stub.position.set(0.1, 0.11, 0.02);
+  const g = new THREE.Group().add(log, stub);
+  g.scale.setScalar(d.size * 1.6);
+  return g;
+}
+
+/** A small branching coral in a coral-pink glaze. */
+function makeCoral(d: Decor) {
+  const g = new THREE.Group();
+  const mat = glaze('#ec8a6a', { roughness: 0.45 });
+  const branch = (x: number, z: number, tilt: number, turn: number, len: number) => {
+    const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, len, 4, 8), mat);
+    b.position.set(x, len / 2 + 0.02, z);
+    b.rotation.set(tilt * Math.cos(turn), 0, tilt * Math.sin(turn));
+    g.add(b);
+  };
+  branch(0, 0, 0, 0, 0.26);
+  branch(0.05, 0.02, 0.5, 0.3, 0.2);
+  branch(-0.05, 0, 0.55, 2.8, 0.18);
+  branch(0, -0.05, 0.45, 4.6, 0.16);
+  branch(0.01, 0.05, 0.6, 1.6, 0.14);
+  g.scale.setScalar(d.size * 1.6);
+  return g;
+}
+
 /** Height of a decoration's top, for placing the Remove button above it. */
 export function decorHeight(d: Decor) {
   if (d.kind === 'tree') return 1.95 * d.size;
@@ -222,5 +309,8 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'bowl') return 0.4 * d.size;
   if (d.kind === 'shell') return 0.2 * d.size;
   if (d.kind === 'seaglass') return 0.15 * d.size;
+  if (d.kind === 'harbour') return 0.3;
+  if (d.kind === 'driftwood') return 0.3 * d.size;
+  if (d.kind === 'coral') return 0.55 * d.size;
   return 0.3 * d.size;
 }

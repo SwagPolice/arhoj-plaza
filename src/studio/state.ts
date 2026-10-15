@@ -19,7 +19,7 @@ export type Purse = { clay: number; paint: Record<string, number> };
 export type Drop = { id: string; x: number; z: number; what: string; amount: number };
 
 /** Traits a Studio character can gain on top of its personality (kept here, not in the recipe, so share codes stay the same). */
-export const TRAITS = ['tidy'] as const;
+export const TRAITS = ['tidy', 'seafarer'] as const;
 export type Trait = (typeof TRAITS)[number];
 
 /** One thing in his basket this visit, and how many he has left. */
@@ -30,6 +30,20 @@ export type Offer = { id: string; left: number };
  */
 export type Merchant = { here: boolean; wait: number; stay: number; paid: number; visits: number; offers: Offer[] | null };
 export const FIRST_VISIT = 20; // seconds after the mixing bowl is built
+
+/** One thing an expedition brought back, and who found it. `what` is 'clay', a paint colour, or a decoration kind. */
+export type Find = { who: string; what: string; amount: number };
+/**
+ * The harbour: its boat (level 1 = the bigger boat), the trip at sea if any (seconds left), what's waiting in the
+ * crate, and how many trips each character has made (three make a Seafarer).
+ */
+export type Harbour = {
+  level: number;
+  trip: { to: string; crew: string[]; left: number } | null;
+  haul: { to: string; finds: Find[] } | null;
+  trips: Record<string, number>;
+};
+export const newHarbour = (): Harbour => ({ level: 0, trip: null, haul: null, trips: {} });
 
 /** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
 export type Mix = { a: string; b: string; left: number };
@@ -49,6 +63,7 @@ export type StudioState = {
   discovered: string[]; // colours made in the bowl so far (added after v1 shipped: missing = [])
   merchant: Merchant; // (added after v1 shipped: missing = not met yet)
   traits: Record<string, Trait[]>; // by character id (added after v1 shipped: missing = none)
+  harbour: Harbour; // (added after v1 shipped: missing = a harbour-to-be, nothing at sea)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -78,6 +93,7 @@ export function newStudio(now = Date.now()): StudioState {
     discovered: [],
     merchant: newMerchant(),
     traits: {},
+    harbour: newHarbour(),
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -157,6 +173,23 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
       const known = Array.isArray(list) ? [...new Set(list.filter((t): t is Trait => TRAITS.includes(t as Trait)))] : [];
       if (ids.has(id) && known.length) traits[id] = known;
     }
+  const h = isObj(o.harbour) ? o.harbour : {};
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  const trip = isObj(h.trip) && typeof h.trip.to === 'string' && strings(h.trip.crew).length
+    ? { to: h.trip.to, crew: strings(h.trip.crew), left: count(h.trip.left) }
+    : null;
+  const finds: Find[] = [];
+  if (isObj(h.haul)) for (const f of Array.isArray(h.haul.finds) ? h.haul.finds : []) {
+    if (isObj(f) && typeof f.who === 'string' && typeof f.what === 'string') finds.push({ who: f.who, what: f.what, amount: whole(f.amount, 1, 1) });
+  }
+  const trips: Record<string, number> = {};
+  if (isObj(h.trips)) for (const [id, n] of Object.entries(h.trips)) if (whole(n, 0)) trips[id] = whole(n, 0);
+  const harbour: Harbour = {
+    level: whole(h.level, 0),
+    trip,
+    haul: isObj(h.haul) && typeof h.haul.to === 'string' && finds.length ? { to: h.haul.to, finds } : null,
+    trips,
+  };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
@@ -174,6 +207,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     discovered,
     merchant,
     traits,
+    harbour,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

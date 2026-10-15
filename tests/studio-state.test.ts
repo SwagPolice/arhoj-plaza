@@ -38,6 +38,18 @@ describe('studio saves', () => {
     expect(messy.merchant).toEqual({ here: false, wait: 20, stay: 0, paid: 0, visits: 0, offers: null });
   });
 
+  test('a boat at sea and a waiting haul survive a reload; rubbish is cleaned up', () => {
+    const s = newStudio(1000);
+    const id = s.characters[0].id;
+    const saved = {
+      ...s,
+      harbour: { level: 1, trip: { to: 'reef', crew: [id], left: 600 }, haul: { to: 'shallows', finds: [{ who: id, what: 'clay', amount: 4 }] }, trips: { [id]: 2 } },
+    };
+    expect(normaliseStudio(JSON.parse(JSON.stringify(studioData(saved))))).toEqual(saved);
+    const messy = normaliseStudio({ ...studioData(saved), harbour: { level: -2, trip: { to: 'reef', crew: [] }, haul: { to: 'x', finds: [7] } } }, 5);
+    expect(messy.harbour).toEqual({ level: 0, trip: null, haul: null, trips: {} });
+  });
+
   test('nothing, rubbish or an empty save gives a fresh studio, always with a ghost', () => {
     expect(normaliseStudio(null, 5).characters).toHaveLength(1);
     expect(normaliseStudio('hello', 5).lastSeen).toBe(5);

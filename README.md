@@ -9,7 +9,8 @@ Two ways to play, chosen on the start screen (⇄ switches any time):
 - **Creative**: everything unlocked. Make characters, decorate the island freely.
 - **Studio** (v0.1): start with one bare clay ghost on a tiny island. Collect the clay it drops (hover over it with a mouse, or tap it), make more ghosts,
   build a glaze well for paint, and dip your ghosts. A mixing bowl turns two paints into a new colour (7 to discover).
-  Then a balloon merchant starts visiting with decorations and a broom (it makes a character Tidy: they pick up drops).
+  Then a balloon merchant starts visiting with decorations and a broom (it makes a character Tidy: they pick up drops),
+  and a harbour sends crews on expeditions (30 min to 2 h) that come back with finds, including driftwood and coral.
   The pace is calm: at most 30 drops lie around, and while you're away (up to 8 hours) the studio works at a third
   of its speed and only Tidy characters collect; the rest waits on the island for you.
 
@@ -42,7 +43,7 @@ Islands work the same way from **🛠 Decorate**: **↗ Share island** and **Imp
 The rules are pure functions in `src/studio/economy.ts` (rates, costs, time away), so live play and time away
 can't disagree; `tests/studio-economy.test.ts` checks the pacing (first well within about 8 minutes, first dip
 within about 11, first mixed colour within about 30, and an hour of eager play keeps the counters low). Mixing recipes are fixed, in `src/studio/mixing.ts`; the merchant's stock, prices, steps and visits are in
-`src/studio/merchant.ts` (`?debug=merchant` shows his model). The Studio save (`src/studio/state.ts`) follows the same safety rules as everything else.
+`src/studio/merchant.ts` (`?debug=merchant` shows his model); destinations and finds in `src/studio/harbour.ts`. The Studio save (`src/studio/state.ts`) follows the same safety rules as everything else.
 In development, `?fast` makes Studio time run 20 times faster.
 
 ## Backup & move
@@ -77,7 +78,7 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/share.ts` | Share codes and links (characters and islands) |
 | `src/backup.ts` | Backups: everything in one file or code |
 | `src/scene/island-view.ts` | What the Creative plaza and the Studio share: island, camera, characters |
-| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), mixing recipes (`mixing.ts`), merchant (`merchant.ts`, `merchant-model.ts`, `merchant-view.ts`), screen (`studio.ts`) |
+| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), mixing recipes (`mixing.ts`), merchant (`merchant.ts`, `merchant-model.ts`, `merchant-view.ts`), harbour (`harbour.ts`, `harbour-view.ts`), screen (`studio.ts`) |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing

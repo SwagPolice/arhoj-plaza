@@ -18,6 +18,12 @@ import { colourName, mixResult, recipeFor } from './mixing';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
 import { buyItem, canAfford, giveClay, hasTrait, nextStep, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
 import { MerchantBalloon } from './merchant-view';
+import {
+  atSea, BIG_BOAT_COST, buyBigBoat, buyHarbour, collectHaul, crewLimit, destination, DESTINATIONS, findsFor, HARBOUR_COST, harbourOf,
+  harbourUnlocked, isOpen, setSail,
+} from './harbour';
+import { HarbourView } from './harbour-view';
+import type { Find } from './state';
 
 const PERSONALITY_ICON: Record<Personality, string> = { calm: '🍵', curious: '🔍', shy: '🌱', bouncy: '🎵' };
 const EYE_LABELS: Record<Eyes, string> = { open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed' };
@@ -47,7 +53,10 @@ export class Studio extends IslandView {
   private ghostBtn = button('', 'btn primary', () => this.openNewGhost());
   private wellBtn = button('', 'btn', () => this.buildWell());
   private bowlBtn = button('', 'btn', () => this.buildBowl());
+  private harbourBtn = button('', 'btn', () => this.buildHarbour());
   private arrangeBtn = button('Arrange', 'btn', () => this.setArranging(true));
+  private harbourView = new HarbourView();
+  private harbourDialog: HTMLDialogElement | null = null;
   private decorator: Decorator;
   private merchant: MerchantBalloon;
   private shop: HTMLDialogElement | null = null;
@@ -88,7 +97,7 @@ export class Studio extends IslandView {
       },
       { full: false, tip: 'Drag things to move them · tap one to turn or resize it' },
     );
-    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.arrangeBtn);
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.arrangeBtn);
     this.card.style.display = 'none';
     const purse = el('div', 'hud-purse');
     const paintWrap = el('div', 'hud-paint-wrap');
@@ -124,7 +133,7 @@ export class Studio extends IslandView {
 
   enter() {
     super.enter();
-    this.syncAgents(this.state.characters);
+    this.syncHome();
     this.welcomeBack();
     this.showDrops();
     this.render();
@@ -174,9 +183,11 @@ export class Studio extends IslandView {
   protected onUpdate(dt: number, t: number) {
     this.decorator.update(dt, this.w, this.h);
     this.merchant.update(dt, t, this.camera);
+    const harbour = harbourOf(this.state);
+    this.harbourView.update(dt, t, harbour ? this.island.decor.get(harbour.id) : undefined, !!this.state.harbour.trip, !!this.state.harbour.haul);
     if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
-    const { state, yields, mixed, visit } = advance(this.state, dt * this.speed);
+    const { state, yields, mixed, visit, boatHome } = advance(this.state, dt * this.speed);
     this.state = state;
     // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
     // is too full for it to land (it shouldn't vanish into the held pile); everything else lands on the ground.
@@ -187,6 +198,7 @@ export class Studio extends IslandView {
     const fresh = yields.filter((y) => !direct.includes(y));
     if (fresh.length) this.place(fresh);
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
+    if (boatHome) this.onBoatHome();
     if (visit) this.onVisit(visit);
     // The scene follows the save: he's shown if he's here (after loading or coming back), gone if he left meanwhile.
     else if (this.state.merchant.here && !this.merchant.root.visible) this.merchant.show(STEPS[stepOf(this.state)].scale);
@@ -213,6 +225,9 @@ export class Studio extends IslandView {
     const bowlObj = bowl && this.island.decor.get(bowl.id);
     if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
     if (this.merchant.hit(this.raycaster)) return this.openShop();
+    const harbour = harbourOf(this.state);
+    const harbourObj = harbour && this.island.decor.get(harbour.id);
+    if (harbourObj && this.raycaster.intersectObject(harbourObj, true).length) return this.openHarbour();
     const agent = this.pickAgent(e);
     if (!agent) {
       this.card.style.display = 'none';
@@ -229,12 +244,17 @@ export class Studio extends IslandView {
   /** Coming back: what was made meanwhile lands on the "While you were away" card. */
   private welcomeBack() {
     const hadCard = !!this.state.away;
+    const wasAtSea = !!this.state.harbour.trip;
     const { state, seconds, ground } = comeBack(this.state, Date.now());
     this.state = state;
     if (ground.length) this.place(ground, true);
     this.refreshTints();
     this.persist();
     this.render();
+    if (wasAtSea && !this.state.harbour.trip) {
+      this.syncHome(); // the crew is back on the island
+      this.toast('The boat came back while you were away! Tap the harbour to see what they found.');
+    }
     if (this.state.away) this.showAwayCard();
     else if (seconds && ground.length) this.toast('Welcome back! A few things were made while you were away.');
     else if (!hadCard && seconds && this.state.merchant.here) this.toast('The merchant is visiting right now!');
@@ -407,7 +427,7 @@ export class Studio extends IslandView {
           const next = buyGhost(this.state, ghost);
           if (!next) return;
           this.state = next;
-          this.syncAgents(this.state.characters);
+          this.syncHome();
           const agent = this.agents.find((a) => a.recipe.id === ghost.id);
           if (agent) this.say(agent, '✨');
           this.persist();
@@ -679,6 +699,165 @@ export class Studio extends IslandView {
     this.render();
   }
 
+  // ---------- the harbour ----------
+
+  /** The characters on the island: everyone except the crew away at sea. */
+  private syncHome() {
+    const away = atSea(this.state);
+    const before = this.agents.length;
+    this.syncAgents(this.state.characters.filter((c) => !away.has(c.id)));
+    if (this.agents.length < before) this.bubbles.clear(); // no bubbles left floating where the crew stood
+  }
+
+  private buildHarbour() {
+    if (this.state.purse.clay < HARBOUR_COST) return this.toast(`The harbour needs ${HARBOUR_COST} clay. Keep collecting!`);
+    const next = buyHarbour(this.state);
+    if (!next) return this.toast('No room on the edge of the island for a harbour.');
+    this.state = next;
+    this.applyLayout(next.island);
+    this.returnToIsland();
+    this.firstTime('harbour', '⚓');
+    this.toast('The harbour is built! Tap it to send a crew on an expedition.');
+    this.persist();
+    this.render();
+  }
+
+  /** Tap the harbour: send a crew, see how long until they're back, or open what they brought. */
+  private openHarbour() {
+    this.harbourDialog?.close();
+    const h = this.state.harbour;
+    if (h.trip) {
+      const where = destination(h.trip.to)?.name.toLowerCase() ?? 'sea';
+      const left = h.trip.left < 60 ? 'any moment now' : `in ${duration(h.trip.left)}`;
+      this.harbourDialog = openDialog('The harbour', [
+        el('p', '', `${this.names(h.trip.crew)} ${h.trip.crew.length > 1 ? 'are' : 'is'} at ${where}. Back ${left}.`),
+      ]);
+      return;
+    }
+    if (h.haul) return this.openHaul();
+    this.openSend();
+  }
+
+  private openSend() {
+    const s = this.state;
+    let to = DESTINATIONS.find((d) => isOpen(s, d))?.id ?? '';
+    const crew: string[] = [];
+    const places = el('div', 'chips');
+    const people = el('div', 'chips');
+    const hint = el('p', 'muted harbour-hint');
+    const sail = button('Set sail', 'btn primary', () => {
+      const r = setSail(this.state, to, crew);
+      if (!('state' in r)) return this.toast(r.why === 'crew' ? 'Pick who goes first.' : "The boat can't sail right now.");
+      this.state = r.state;
+      this.syncHome();
+      this.toast(`The boat set sail for ${destination(to)!.name.toLowerCase()}.`);
+      this.persist();
+      this.render();
+      dialog.close();
+    });
+    const draw = () => {
+      const limit = crewLimit(this.state);
+      places.replaceChildren(
+        ...DESTINATIONS.map((d) => {
+          const open = isOpen(this.state, d);
+          const b = button(`${d.name} · ${duration(d.seconds)}`, 'chip' + (d.id === to ? ' on' : '') + (open ? '' : ' off'), () => {
+            if (!open) return this.toast("The merchant hasn't found the way there yet.");
+            to = d.id;
+            draw();
+          });
+          if (!open) b.title = "The merchant hasn't found the way yet";
+          return b;
+        }),
+      );
+      people.replaceChildren(
+        ...this.state.characters.map((c) => {
+          const on = crew.includes(c.id);
+          const label = `${PERSONALITY_ICON[c.personality]} ${c.name || 'Unnamed'}${hasTrait(this.state, c.id, 'seafarer') ? ' ⚓' : ''}`;
+          return button(label, 'chip' + (on ? ' on' : ''), () => {
+            if (on) crew.splice(crew.indexOf(c.id), 1);
+            else if (crew.length < limit) crew.push(c.id);
+            else return this.toast(`The boat takes ${limit} at most.`);
+            draw();
+          });
+        }),
+      );
+      const d = destination(to);
+      const finds = d ? crew.reduce((n, id) => n + findsFor(this.state, d, id), 0) : 0;
+      const shy = crew.some((id) => this.state.characters.find((c) => c.id === id)?.personality === 'shy');
+      hint.textContent = crew.length
+        ? `About ${finds} finds${shy ? ' · a shy one aboard: rarer finds' : ''}. They won't make anything on the island while they're away.`
+        : `Pick up to ${limit} to go. Curious ones find more, shy ones find rarer things.`;
+      sail.classList.toggle('off', !crew.length || !to);
+    };
+    draw();
+    const extra: HTMLElement[] = [];
+    if (s.harbour.level < 1) {
+      const big = button(`Bigger boat (takes 5) · ${BIG_BOAT_COST} clay`, 'btn' + (s.purse.clay >= BIG_BOAT_COST ? '' : ' off'), () => {
+        const next = buyBigBoat(this.state);
+        if (!next) return this.toast(`A bigger boat costs ${BIG_BOAT_COST} clay.`);
+        this.state = next;
+        this.persist();
+        this.render();
+        big.remove();
+        this.toast('A bigger boat! Now 5 can go.');
+        draw();
+      });
+      extra.push(row(big));
+    }
+    const dialog = openDialog('Send an expedition', [
+      el('div', 'sub', 'Where to?'),
+      places,
+      el('div', 'sub', 'Who goes?'),
+      people,
+      hint,
+      row(sail),
+      ...extra,
+    ]);
+    this.harbourDialog = dialog;
+  }
+
+  /** What the crew brought back, by who found it, and a Collect button. */
+  private openHaul() {
+    const haul = this.state.harbour.haul!;
+    const byWho = new Map<string, Find[]>();
+    for (const f of haul.finds) byWho.set(f.who, [...(byWho.get(f.who) ?? []), f]);
+    const list = el('ul', 'away-list');
+    for (const [who, finds] of byWho) list.append(el('li', '', `${this.names([who])}: ${finds.map(describeFind).join(', ')}`));
+    const dialog = openDialog('The boat is back!', [
+      el('p', 'muted', `From ${destination(haul.to)?.name.toLowerCase() ?? 'the sea'}, they brought:`),
+      list,
+      row(
+        button('Collect', 'btn primary', () => {
+          const r = collectHaul(this.state);
+          this.state = r.state;
+          if (r.placed.length) {
+            this.applyLayout(r.state.island);
+            this.returnToIsland();
+          }
+          this.toast(r.kept.length ? `No room for ${r.kept.map(describeFind).join(', ')} yet: it waits at the harbour.` : 'All collected!');
+          this.persist();
+          this.render();
+          dialog.close();
+        }),
+      ),
+    ]);
+    this.harbourDialog = dialog;
+  }
+
+  private onBoatHome() {
+    this.syncHome();
+    this.harbourDialog?.close();
+    this.toast('The boat is back! Tap the harbour to see what they found.');
+    this.persist();
+    this.render();
+  }
+
+  /** "Pip", "Pip and Mochi", "Pip, Mochi and Bo" (by character id). */
+  private names(ids: string[]) {
+    const names = ids.map((id) => this.state.characters.find((c) => c.id === id)?.name || 'someone');
+    return names.length < 2 ? (names[0] ?? 'nobody') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  }
+
   // ---------- traits ----------
 
   /** Tidy characters pick up drops near them, and now and then stroll over to the nearest one. */
@@ -738,6 +917,7 @@ export class Studio extends IslandView {
       el('div', 'muted', `${PERSONALITY_ICON[r.personality]} ${r.personality}`),
     ];
     if (hasTrait(this.state, id, 'tidy')) parts.push(el('div', 'card-trait', '✨ Tidy: picks up drops nearby'));
+    if (hasTrait(this.state, id, 'seafarer')) parts.push(el('div', 'card-trait', '⚓ Seafarer: finds a little more on expeditions'));
     if (r.layers.length) {
       parts.push(el('p', 'card-line', `Dipped in ${colourName(r.layers[0].colour)}. It sometimes drops that paint.`));
     } else {
@@ -767,7 +947,7 @@ export class Studio extends IslandView {
     const next = dip(this.state, id, colour);
     if (!next) return;
     this.state = next;
-    this.syncAgents(this.state.characters);
+    this.syncHome();
     const agent = this.agents.find((a) => a.recipe.id === id);
     if (agent) this.say(agent, '✨');
     this.firstTime('dip', '💖', agent);
@@ -828,6 +1008,9 @@ export class Studio extends IslandView {
     this.bowlBtn.style.display = s.wellsBuilt && !bowlOf(s) ? '' : 'none';
     this.bowlBtn.classList.toggle('off', s.purse.clay < BOWL_COST);
     this.arrangeBtn.style.display = s.island.items.length ? '' : 'none';
+    priced(this.harbourBtn, 'Harbour', HARBOUR_COST);
+    this.harbourBtn.style.display = harbourUnlocked(s) && !harbourOf(s) ? '' : 'none';
+    this.harbourBtn.classList.toggle('off', s.purse.clay < HARBOUR_COST);
     if (this.cardFor) this.showCard(this.cardFor);
   }
 
@@ -873,8 +1056,16 @@ function priced(b: HTMLButtonElement, what: string, clay: number) {
   b.replaceChildren(what, el('span', 'price', `${clay} clay`));
 }
 
+/** "6 clay", "2 cobalt paint", "a shell", "2 driftwood". */
+function describeFind(f: Find) {
+  if (f.what === 'clay') return `${f.amount} clay`;
+  if (f.what.startsWith('#')) return `${f.amount} ${colourName(f.what)} paint`;
+  const name = ({ shell: 'shell', seaglass: 'sea glass', driftwood: 'driftwood', coral: 'coral' } as Record<string, string>)[f.what] ?? f.what;
+  return f.amount > 1 ? `${f.amount} ${name}` : name === 'sea glass' || name === 'driftwood' ? name : `a ${name}`;
+}
+
 function duration(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
-  return h ? `${h} h ${m} min` : `${m} min`;
+  return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`;
 }

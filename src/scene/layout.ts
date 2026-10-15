@@ -7,7 +7,7 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass'] as const; // well, bowl: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral'] as const; // well, bowl, harbour: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
@@ -30,13 +30,19 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   bowl: { min: 1, max: 1 },
   shell: { min: 0.6, max: 1.6 },
   seaglass: { min: 0.6, max: 1.6 },
+  harbour: { min: 1, max: 1 },
+  driftwood: { min: 0.6, max: 1.6 },
+  coral: { min: 0.6, max: 1.6 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
-export const canTurn = (kind: DecorKind) => kind === 'rock' || kind === 'shell' || kind === 'seaglass';
+export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral'].includes(kind);
 
-/** Trees, ponds and rocks block walking and can't overlap each other; mushrooms, shells and sea glass are little and walk-through. */
-export const blocksWalking = (kind: DecorKind) => kind !== 'mushroom' && kind !== 'shell' && kind !== 'seaglass';
+/** The harbour belongs on the island's edge, facing the sea: it stays where it was built. */
+export const canMove = (kind: DecorKind) => kind !== 'harbour';
+
+/** Trees, ponds and rocks block walking and can't overlap each other; little things (mushrooms, shells…) are walk-through. */
+export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral'].includes(kind);
 
 /** How much ground an object takes up (a circle of this radius). */
 export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
@@ -47,6 +53,9 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'bowl') return 0.6 * d.size;
   if (d.kind === 'shell') return 0.32 * d.size;
   if (d.kind === 'seaglass') return 0.18 * d.size;
+  if (d.kind === 'harbour') return 0.55; // the landward end; the pier itself reaches out over the water
+  if (d.kind === 'driftwood') return 0.5 * d.size;
+  if (d.kind === 'coral') return 0.3 * d.size;
   return 0.15 * d.size;
 }
 
@@ -97,6 +106,24 @@ export function placeNew(layout: IslandLayout, kind: DecorKind): Decor | null {
       const z = round2(Math.sin(a) * r);
       if (canPlace(layout, item, x, z)) return { ...item, x, z };
     }
+  }
+  return null;
+}
+
+/**
+ * A new object on the island's edge, turned to face out to sea (the harbour), or null if the edge is full.
+ * It looks from the left side round both ways: there it's in view, clear of the build bar at the bottom.
+ */
+export function placeAtEdge(layout: IslandLayout, kind: DecorKind): Decor | null {
+  if (layout.items.length >= MAX_DECOR) return null;
+  const item: Decor = { id: newDecorId(kind), kind, x: 0, z: 0, size: 1, rot: 0 };
+  const r = layout.radius - footprint(item) - EDGE - 0.01;
+  const start = Math.atan2(-1, 0.25); // the left side, a little towards the camera (an angle from +z towards +x)
+  for (let i = 0; i <= 72; i++) {
+    const a = start + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 36);
+    const x = round2(Math.sin(a) * r);
+    const z = round2(Math.cos(a) * r);
+    if (canPlace(layout, item, x, z)) return { ...item, x, z, rot: round2(((a % TAU) + TAU) % TAU) };
   }
   return null;
 }

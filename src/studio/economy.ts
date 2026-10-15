@@ -10,6 +10,7 @@ import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
 import { hasTrait, stepOf, stepVisit } from './merchant';
+import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -49,11 +50,12 @@ export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null
 
 /**
  * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
- * merchant comes and goes. `speed` slows the making down (time away) but not the bowl or the merchant.
+ * merchant comes and goes, and the boat sails on. `speed` slows the making down (time away), not the rest.
+ * Characters away on the boat make nothing.
  */
 export function advance(
   s: StudioState, seconds: number, speed = 1,
-): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null } {
+): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
@@ -61,7 +63,9 @@ export function advance(
   const dt = Math.max(0, seconds);
   const making = dt * speed;
 
+  const atSea = new Set(s.harbour.trip?.crew ?? []);
   for (const c of s.characters) {
+    if (atSea.has(c.id)) continue;
     const { every, double } = RATES[c.personality];
     const p = (progress[c.id] ?? rand() * every) + making; // newcomers start part-way, so drops don't all land at once
     const n = Math.floor(p / every);
@@ -97,7 +101,9 @@ export function advance(
     bowl = null;
   }
   const { merchant, visit } = stepVisit(s.merchant, !!bowlOf(s), stepOf(s), dt, rand);
-  return { state: { ...s, progress, wellTints, bowl, discovered, merchant, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit };
+  const { state: sailed, home } = stepTrip(s, dt, rand);
+  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits };
+  return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home };
 }
 
 export function addTo(p: Purse, what: string, amount: number): Purse {
@@ -246,8 +252,12 @@ export function nextGoal(s: StudioState): string {
     return s.purse.clay >= BOWL_COST ? 'Next: build the mixing bowl!' : `Next: Mixing bowl, ${more(BOWL_COST - s.purse.clay)}`;
   }
   if (s.merchant.here) return 'The merchant is here: tap him';
+  if (s.harbour.haul) return 'The boat is back: tap the harbour';
   if (s.bowl) return 'The bowl is stirring…';
   if (!s.discovered.length) return paints >= 2 ? 'Next: tap the bowl and mix two paints' : 'Next: collect two paints to mix';
+  if (harbourUnlocked(s) && !harbourOf(s)) {
+    return s.purse.clay >= HARBOUR_COST ? 'Next: build the harbour!' : `Next: Harbour, ${more(HARBOUR_COST - s.purse.clay)}`;
+  }
   const found = MIXABLE.filter((c) => s.discovered.includes(c)).length;
   if (found < MIXABLE.length && paints >= 2) return `Next: mix a new colour (${found} of ${MIXABLE.length} found)`;
   if (bare && paints) return 'Next: tap a ghost and dip it in paint';

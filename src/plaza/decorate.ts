@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { decorHeight, type BuiltIsland } from '../scene/island';
 import {
-  canPlace, canTurn, defaultLayout, footprint, ISLAND_SIZE, MAX_DECOR, maxSizeHere, minRadius, nearestFreeSpot, placeNew, SIZES, turned,
+  canMove, canPlace, canTurn, defaultLayout, footprint, ISLAND_SIZE, MAX_DECOR, maxSizeHere, minRadius, nearestFreeSpot, placeNew, SIZES, turned,
   type Decor, type DecorKind, type IslandLayout,
 } from '../scene/layout';
 import { button, el } from '../ui/dom';
@@ -52,8 +52,11 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'mushroom', label: '🍄 Mushroom' },
   { kind: 'shell', label: '🐚 Shell' },
   { kind: 'seaglass', label: '💎 Sea glass' },
+  { kind: 'driftwood', label: '🪵 Driftwood' },
+  { kind: 'coral', label: '🪸 Coral' },
 ];
-const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass' };
+const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass', harbour: 'harbour', driftwood: 'driftwood', coral: 'coral',
+};
 type Look = 'selected' | 'invalid' | null;
 const RED = new THREE.Color('#e0452f');
 const GLOW = new THREE.Color('#5c4620');
@@ -351,7 +354,8 @@ export class Decorator {
   private onDown(e: PointerEvent) {
     if (!this.active || this.drag || this.slide) return;
     this.aim(e);
-    const hit = this.raycaster.intersectObjects([...this.host.island().decor.values()], true)[0];
+    const movable = this.host.layout().items.filter((d) => canMove(d.kind)).map((d) => this.host.island().decor.get(d.id)!);
+    const hit = this.raycaster.intersectObjects(movable.filter(Boolean), true)[0];
     let obj: THREE.Object3D | null = hit?.object ?? null;
     while (obj && !obj.userData.decorId) obj = obj.parent;
     if (!obj) {
