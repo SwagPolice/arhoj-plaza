@@ -8,6 +8,7 @@ import { defaultLayer } from '../character/recipe';
 import { placeNew } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
+import { MIXABLE, mixResult } from './mixing';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -20,18 +21,29 @@ export const PAINT_SHARE = 0.3; // a dipped character's drop is paint this often
 export const WELL_EVERY = 60; // seconds per paint from a glaze well
 export const AWAY_CAP = 8 * 3600; // time away counts up to 8 hours
 export const AWAY_MIN = 60; // shorter breaks just carry on, no card
+export const MIX_TIME = 5; // seconds the bowl stirs
+export const MIX_MAKES = 2; // drops of the new colour from one mix
+export const BOWL_COST = 40;
 
 export const ghostCost = (s: StudioState) => 10 + 5 * (s.ghostsMade - 1);
 export const wellCost = (s: StudioState) => [20, 35, 55].at(s.wellsBuilt) ?? 55 + 30 * (s.wellsBuilt - 2);
 
-/** One thing made: by whom (character or well id), what ('clay' or a paint colour), how much. */
-export type Yield = { from: string; what: string; amount: number };
+/**
+ * One thing made: by whom (character, well or bowl id), what ('clay' or a paint colour), how much.
+ * `back` marks paint the bowl gives back after a mix that made nothing new.
+ */
+export type Yield = { from: string; what: string; amount: number; back?: boolean };
+
+/** A mix the bowl just finished: the two paints, and what they made (null: nothing new, paints given back). */
+export type Mixed = { a: string; b: string; made: string | null };
+
+export const bowlOf = (s: StudioState) => s.island.items.find((d) => d.kind === 'bowl') ?? null;
 
 /** The colour a character's top glaze is (what it drops as paint), or null when it's bare clay. */
 export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null;
 
 /** Let `seconds` pass: everyone and every well makes what it would have made in that time. */
-export function advance(s: StudioState, seconds: number): { state: StudioState; yields: Yield[] } {
+export function advance(s: StudioState, seconds: number): { state: StudioState; yields: Yield[]; mixed: Mixed | null } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
@@ -60,7 +72,20 @@ export function advance(s: StudioState, seconds: number): { state: StudioState; 
       wellTints[w.id] = colour;
     }
   }
-  return { state: { ...s, progress, wellTints, seed: Math.floor(rand() * 2 ** 31) }, yields };
+  let { bowl, discovered } = s;
+  let mixed: Mixed | null = null;
+  if (bowl && bowl.left > dt) bowl = { ...bowl, left: bowl.left - dt };
+  else if (bowl) {
+    const from = bowlOf(s)?.id ?? 'bowl';
+    const made = mixResult(bowl.a, bowl.b);
+    if (made) {
+      for (let i = 0; i < MIX_MAKES; i++) yields.push({ from, what: made, amount: 1 });
+      if (!discovered.includes(made)) discovered = [...discovered, made];
+    } else yields.push({ from, what: bowl.a, amount: 1, back: true }, { from, what: bowl.b, amount: 1, back: true });
+    mixed = { a: bowl.a, b: bowl.b, made };
+    bowl = null;
+  }
+  return { state: { ...s, progress, wellTints, bowl, discovered, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed };
 }
 
 export function addTo(p: Purse, what: string, amount: number): Purse {
@@ -151,6 +176,24 @@ export function buyWell(s: StudioState): StudioState | null {
   };
 }
 
+export function buyBowl(s: StudioState): StudioState | null {
+  if (bowlOf(s) || s.purse.clay < BOWL_COST) return null; // one bowl is enough
+  const bowl = placeNew(s.island, 'bowl');
+  if (!bowl) return null;
+  return { ...s, purse: { ...s.purse, clay: s.purse.clay - BOWL_COST }, island: { ...s.island, items: [...s.island.items, bowl] } };
+}
+
+/** Put two paints (one of each; the same colour twice is fine) in the bowl to stir. */
+export function startMix(s: StudioState, a: string, b: string): StudioState | null {
+  if (!bowlOf(s) || s.bowl) return null;
+  let paint = { ...s.purse.paint };
+  for (const c of [a, b]) {
+    if ((paint[c] ?? 0) < 1) return null;
+    paint = { ...paint, [c]: paint[c] - 1 };
+  }
+  return { ...s, purse: { ...s.purse, paint }, bowl: { a, b, left: MIX_TIME } };
+}
+
 /** Dip a bare character in a paint you own (one dip per character for now). */
 export function dip(s: StudioState, characterId: string, colour: string): StudioState | null {
   const c = s.characters.find((r) => r.id === characterId);
@@ -166,14 +209,23 @@ export function dip(s: StudioState, characterId: string, colour: string): Studio
 /** The one next thing to aim for, always shown. */
 export function nextGoal(s: StudioState): string {
   const more = (n: number) => `${n} more clay`;
+  const paints = Object.values(s.purse.paint).reduce((n, k) => n + k, 0);
   if (!s.wellsBuilt) {
     const cost = wellCost(s);
     return s.purse.clay >= cost ? 'Next: build your first glaze well!' : `Next: Glaze well, ${more(cost - s.purse.clay)}`;
   }
-  const owned = Object.values(s.purse.paint).some((n) => n > 0);
   const bare = s.characters.some((c) => !c.layers.length);
-  if (bare && owned) return 'Next: tap a ghost and dip it in paint';
-  if (bare) return 'Next: collect a paint drop from the well';
+  const anyDipped = s.characters.some((c) => c.layers.length);
+  if (bare && paints && !anyDipped) return 'Next: tap a ghost and dip it in paint';
+  if (!anyDipped) return 'Next: collect a paint drop from the well';
+  if (!bowlOf(s)) {
+    return s.purse.clay >= BOWL_COST ? 'Next: build the mixing bowl!' : `Next: Mixing bowl, ${more(BOWL_COST - s.purse.clay)}`;
+  }
+  if (s.bowl) return 'The bowl is stirring…';
+  if (!s.discovered.length) return paints >= 2 ? 'Next: tap the bowl and mix two paints' : 'Next: collect two paints to mix';
+  const found = MIXABLE.filter((c) => s.discovered.includes(c)).length;
+  if (found < MIXABLE.length && paints >= 2) return `Next: mix a new colour (${found} of ${MIXABLE.length} found)`;
+  if (bare && paints) return 'Next: tap a ghost and dip it in paint';
   const cost = ghostCost(s);
   return s.purse.clay >= cost ? 'Next: make a new ghost!' : `Next: another ghost, ${more(cost - s.purse.clay)}`;
 }

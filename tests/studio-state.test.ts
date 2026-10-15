@@ -13,8 +13,15 @@ describe('studio saves', () => {
   });
 
   test('a save from the first Studio version still loads exactly as it was', () => {
-    const { v: _, ...expected } = SAVED_V1;
-    expect(normaliseStudio(JSON.parse(JSON.stringify(SAVED_V1)))).toEqual(expected);
+    const { v: _, ...saved } = SAVED_V1;
+    // Fields added since then start empty: no mix stirring, no colours mixed yet.
+    expect(normaliseStudio(JSON.parse(JSON.stringify(SAVED_V1)))).toEqual({ ...saved, bowl: null, discovered: [] });
+  });
+
+  test('a mix in the bowl and the colours found survive a reload', () => {
+    const s = { ...newStudio(1000), bowl: { a: '#d8382f', b: '#f2c230', left: 3.5 }, discovered: ['#f08a24'] };
+    expect(normaliseStudio(JSON.parse(JSON.stringify(studioData(s))))).toEqual(s);
+    expect(normaliseStudio({ ...studioData(s), bowl: { a: 'red', b: 4 }, discovered: ['#F08A24', 'x', '#f08a24'] }, 5)).toMatchObject({ bowl: null, discovered: ['#f08a24'] });
   });
 
   test('a save goes round trip unchanged', () => {

@@ -42,7 +42,7 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'rock', label: '🪨 Rock' },
   { kind: 'mushroom', label: '🍄 Mushroom' },
 ];
-const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well' };
+const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl' };
 type Look = 'selected' | 'invalid' | null;
 const RED = new THREE.Color('#e0452f');
 const GLOW = new THREE.Color('#5c4620');

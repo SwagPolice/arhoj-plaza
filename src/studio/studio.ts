@@ -10,13 +10,15 @@ import { button, el } from '../ui/dom';
 import { openDialog, row } from '../ui/share-dialogs';
 import type { Agent } from '../plaza/behaviour';
 import {
-  advance, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost, nextGoal, wellCost, type Yield,
+  addTo, advance, BOWL_COST, bowlOf, buyBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
+  nextGoal, startMix, wellCost, type Mixed, type Yield,
 } from './economy';
-import { bareGhost, PRIMARIES, PRIMARY_NAMES, type Drop, type StudioState } from './state';
+import { colourName, mixResult, recipeFor } from './mixing';
+import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
 
 const PERSONALITY_ICON: Record<Personality, string> = { calm: '🍵', curious: '🔍', shy: '🌱', bouncy: '🎵' };
 const EYE_LABELS: Record<Eyes, string> = { open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed' };
-const colourName = (hex: string) => PRIMARY_NAMES[hex] ?? 'paint';
+const Name = (hex: string) => colourName(hex).replace(/^./, (c) => c.toUpperCase());
 const LAND = 0.45; // seconds for a drop to arc to the ground
 const POP = 0.25; // seconds for a collected drop to pop away
 
@@ -35,6 +37,7 @@ export class Studio extends IslandView {
   private bar = el('div', 'studio-bar');
   private ghostBtn = button('', 'btn primary', () => this.openNewGhost());
   private wellBtn = button('', 'btn', () => this.buildWell());
+  private bowlBtn = button('', 'btn', () => this.buildBowl());
   private card = el('div', 'card studio-card');
   private cardFor: string | null = null;
   private shown = ''; // what the HUD last showed, to bump only what changed
@@ -55,7 +58,7 @@ export class Studio extends IslandView {
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('fast')) this.speed = 20;
 
     this.scene.add(this.drops);
-    this.bar.append(this.ghostBtn, this.wellBtn);
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn);
     this.card.style.display = 'none';
     this.addUI(this.hud, this.card, this.bar);
 
@@ -98,11 +101,21 @@ export class Studio extends IslandView {
     return this.state?.wellTints ?? {};
   }
 
-  protected onUpdate(dt: number) {
-    const { state, yields } = advance(this.state, dt * this.speed);
+  protected onUpdate(dt: number, t: number) {
+    const known = this.state.discovered;
+    const { state, yields, mixed } = advance(this.state, dt * this.speed);
     this.state = state;
-    if (yields.length) this.place(yields);
+    // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
+    // is too full for it to land (it shouldn't vanish into the held pile); everything else lands on the ground.
+    const bowl = bowlOf(this.state)?.id;
+    const fromBowl = yields.filter((y) => y.from === bowl);
+    const direct = fromBowl.some((y) => y.back) || this.state.ground.length + fromBowl.length > MAX_GROUND ? fromBowl : [];
+    for (const y of direct) this.state = { ...this.state, purse: addTo(this.state.purse, y.what, y.amount) };
+    const fresh = yields.filter((y) => !direct.includes(y));
+    if (fresh.length) this.place(fresh);
+    if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
     this.animateDrops(dt);
+    this.stirBowl(t);
     if ((this.saveClock += dt) > 5) this.persist();
   }
 
@@ -113,6 +126,9 @@ export class Studio extends IslandView {
     let obj: THREE.Object3D | null = hit?.object ?? null;
     while (obj && !obj.userData.dropId) obj = obj.parent;
     if (obj) return this.collectDrop(obj.userData.dropId);
+    const bowl = bowlOf(this.state);
+    const bowlObj = bowl && this.island.decor.get(bowl.id);
+    if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
     const agent = this.pickAgent(e);
     if (!agent) {
       this.card.style.display = 'none';
@@ -307,6 +323,122 @@ export class Studio extends IslandView {
     this.render();
   }
 
+  private buildBowl() {
+    if (this.state.purse.clay < BOWL_COST) return this.toast(`The mixing bowl needs ${BOWL_COST} clay. Keep collecting!`);
+    const next = buyBowl(this.state);
+    if (!next) return this.toast('No room left on the island for the bowl.');
+    this.state = next;
+    this.applyLayout(next.island);
+    this.returnToIsland();
+    this.firstTime('bowl', '🎉');
+    this.toast('Tap the bowl to mix two paints.');
+    this.render();
+  }
+
+  // ---------- mixing ----------
+
+  /** The mixing bowl: pick two paints, see what they make if you've made it before, and mix. */
+  private openMixer() {
+    if (this.state.bowl) return this.toast('Still stirring…');
+    const picked: string[] = [];
+    const dotOf = (colour: string) => {
+      const dot = el('span', 'swatch-dot');
+      dot.style.background = colour;
+      return dot;
+    };
+    const slots = el('div', 'mix-slots');
+    const makes = el('div', 'mix-makes');
+    const chips = el('div', 'chips');
+    const mixBtn = button('Mix', 'btn primary', () => {
+      if (picked.length < 2) return;
+      const next = startMix(this.state, picked[0], picked[1]);
+      if (!next) return;
+      this.state = next;
+      this.persist();
+      this.render();
+      dialog.close();
+    });
+    const draw = () => {
+      slots.replaceChildren(
+        ...[0, 1].map((i) => {
+          const c = picked[i];
+          const slot = button('', 'mix-slot' + (c ? ' full' : ''), () => c && (picked.splice(i, 1), draw()));
+          if (c) slot.style.background = c;
+          slot.title = c ? `${Name(c)} (tap to take it out)` : 'Pick a paint below';
+          return slot;
+        }),
+      );
+      slots.insertBefore(el('span', 'mix-plus', '+'), slots.children[1]);
+      const result = picked.length === 2 ? mixResult(picked[0], picked[1]) : null;
+      const known = result && this.state.discovered.includes(result);
+      makes.replaceChildren(picked.length < 2 ? 'Pick two paints' : known ? 'Makes ' : 'Makes: ?');
+      if (picked.length === 2 && known) makes.append(dotOf(result), Name(result));
+      const owned = Object.entries(this.state.purse.paint).filter(([c, n]) => n - picked.filter((p) => p === c).length > 0);
+      chips.replaceChildren(
+        ...owned.map(([c, n]) => {
+          const b = button('', 'chip', () => picked.length < 2 && (picked.push(c), draw()));
+          b.append(dotOf(c), `${Name(c)} (${n - picked.filter((p) => p === c).length})`);
+          return b;
+        }),
+      );
+      if (!owned.length && picked.length < 2) chips.append(el('span', 'muted', 'No more paint to pick.'));
+      mixBtn.classList.toggle('off', picked.length < 2);
+    };
+    draw();
+    const found = el('div', 'mix-found');
+    for (const c of this.state.discovered) {
+      const r = recipeFor(c);
+      if (!r) continue;
+      const line = el('div', 'mix-recipe');
+      line.append(dotOf(r[0]), dotOf(r[1]), ' → ', dotOf(c), Name(c));
+      found.append(line);
+    }
+    const dialog = openDialog('Mixing bowl', [
+      el('p', 'muted', 'Two paints in, a new colour out. Not every pair makes something; if not, you get your paints back.'),
+      slots,
+      makes,
+      chips,
+      row(mixBtn),
+      ...(found.children.length ? [el('div', 'sub mix-found-title', "Colours you've mixed"), found] : []),
+    ]);
+  }
+
+  /** The bowl finished: celebrate a colour, or say it made nothing (the paints are already back). */
+  private afterMix(m: Mixed, isNew: boolean) {
+    if (m.made) {
+      if (isNew) {
+        this.toast(`New colour: ${Name(m.made)}!`);
+        const agent = this.nearestTo(bowlOf(this.state));
+        if (agent) this.say(agent, '✨');
+      } else this.toast(`${Name(m.a)} and ${colourName(m.b)} made ${colourName(m.made)}.`);
+      this.firstTime('mix', '🎨');
+    } else {
+      this.toast(`${Name(m.a)} and ${colourName(m.b)}… nothing new. Your paints are back.`);
+    }
+    this.persist();
+    this.render();
+  }
+
+  private nearestTo(p: { x: number; z: number } | null): Agent | undefined {
+    if (!p) return this.agents.at(0);
+    return [...this.agents].sort((a, b) => Math.hypot(a.pos.x - p.x, a.pos.y - p.z) - Math.hypot(b.pos.x - p.x, b.pos.y - p.z))[0];
+  }
+
+  /** While the bowl stirs, its two paints turn around each other. */
+  private stirBowl(t: number) {
+    const bowl = bowlOf(this.state);
+    const obj = bowl && this.island.decor.get(bowl.id);
+    if (!obj) return;
+    const mix = this.state.bowl;
+    for (const [i, half] of obj.children.slice(1).entries()) {
+      if (!(half instanceof THREE.Mesh)) continue;
+      half.visible = !!mix;
+      if (!mix) continue;
+      (half.material as THREE.MeshPhysicalMaterial).color.set(i ? mix.b : mix.a);
+      half.rotation.z = t * 3;
+    }
+  }
+
   private showCard(id: string) {
     const r = this.state.characters.find((c) => c.id === id);
     if (!r) return;
@@ -388,10 +520,14 @@ export class Studio extends IslandView {
 
     const gc = ghostCost(s);
     const wc = wellCost(s);
-    this.ghostBtn.textContent = `＋ Ghost · ${gc} clay`;
-    this.wellBtn.textContent = `Glaze well · ${wc} clay`;
+    priced(this.ghostBtn, '＋ Ghost', gc);
+    priced(this.wellBtn, 'Glaze well', wc);
     this.ghostBtn.classList.toggle('off', s.purse.clay < gc);
     this.wellBtn.classList.toggle('off', s.purse.clay < wc);
+    // The bowl joins the bar once there's paint to mix, and leaves it once built (there's only one).
+    priced(this.bowlBtn, 'Mixing bowl', BOWL_COST);
+    this.bowlBtn.style.display = s.wellsBuilt && !bowlOf(s) ? '' : 'none';
+    this.bowlBtn.classList.toggle('off', s.purse.clay < BOWL_COST);
     if (this.cardFor) this.showCard(this.cardFor);
   }
 
@@ -423,6 +559,11 @@ function makeDrop(d: Drop): THREE.Object3D {
   const target = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
   g.add(blob, target);
   return g;
+}
+
+/** A build button: what it is, then its price (on its own line on phones, where the bar is narrow). */
+function priced(b: HTMLButtonElement, what: string, clay: number) {
+  b.replaceChildren(what, el('span', 'price', `${clay} clay`));
 }
 
 function duration(seconds: number) {

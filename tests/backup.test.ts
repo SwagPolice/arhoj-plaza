@@ -20,7 +20,7 @@ describe('old backups keep working', () => {
       // Version 1 backups have no Studio; version 2 ones carry it exactly.
       if ('studio' in g) {
         const { v: _, ...studio } = GOLDEN_STUDIO;
-        expect(backup.studio).toEqual(studio);
+        expect(backup.studio).toEqual({ ...studio, bowl: null, discovered: [] }); // fields added since start empty
       } else expect(backup.studio).toBeNull();
     });
   }

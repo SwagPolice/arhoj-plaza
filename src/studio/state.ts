@@ -12,12 +12,14 @@ export const STUDIO_VERSION = 1;
 
 /** The three colours a glaze well makes; everything else will be mixed from these. */
 export const PRIMARIES = { red: '#d8382f', yellow: '#f2c230', cobalt: '#2f55b5' } as const;
-export const PRIMARY_NAMES: Record<string, string> = { '#d8382f': 'red', '#f2c230': 'yellow', '#2f55b5': 'cobalt' };
 
 /** What you own (or what's waiting for you): clay, plus paint by colour. */
 export type Purse = { clay: number; paint: Record<string, number> };
 /** Something lying on the ground, waiting to be tapped: `what` is 'clay' or a paint colour. */
 export type Drop = { id: string; x: number; z: number; what: string; amount: number };
+
+/** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
+export type Mix = { a: string; b: string; left: number };
 
 export type StudioState = {
   characters: CharacterRecipe[]; // bare ghosts have no glaze layers yet
@@ -30,7 +32,9 @@ export type StudioState = {
   held: Purse; // made while the ground was full; released as drops get collected, never lost
   away: (Purse & { seconds: number }) | null; // the "While you were away" card, until collected
   wellTints: Record<string, string>; // each well's water: the last colour it made
-  firsts: string[]; // first times already celebrated ('paint', 'well', 'dip')
+  bowl: Mix | null; // what the mixing bowl is stirring, if anything (added after v1 shipped: missing = null)
+  discovered: string[]; // colours made in the bowl so far (added after v1 shipped: missing = [])
+  firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
 };
@@ -54,6 +58,8 @@ export function newStudio(now = Date.now()): StudioState {
     held: emptyPurse(),
     away: null,
     wellTints: {},
+    bowl: null,
+    discovered: [],
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -110,6 +116,11 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
   if (isObj(o.progress)) for (const [k, v] of Object.entries(o.progress)) progress[k] = count(v);
   const wellTints: Record<string, string> = {};
   if (isObj(o.wellTints)) for (const [k, v] of Object.entries(o.wellTints)) if (typeof v === 'string' && isHex(v)) wellTints[k] = v.toLowerCase();
+  const bowl =
+    isObj(o.bowl) && typeof o.bowl.a === 'string' && isHex(o.bowl.a) && typeof o.bowl.b === 'string' && isHex(o.bowl.b)
+      ? { a: o.bowl.a.toLowerCase(), b: o.bowl.b.toLowerCase(), left: count(o.bowl.left) }
+      : null;
+  const discovered = Array.isArray(o.discovered) ? [...new Set(o.discovered.filter((c): c is string => typeof c === 'string' && isHex(c)).map((c) => c.toLowerCase()))] : [];
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
@@ -123,6 +134,8 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     held: normalisePurse(o.held),
     away,
     wellTints,
+    bowl,
+    discovered,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

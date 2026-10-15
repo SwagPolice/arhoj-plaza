@@ -7,7 +7,7 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well'] as const; // well: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl'] as const; // well, bowl: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
@@ -27,6 +27,7 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   rock: { min: 0.2, max: 0.8 },
   mushroom: { min: 0.6, max: 1.6 },
   well: { min: 1, max: 1 },
+  bowl: { min: 1, max: 1 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
@@ -41,6 +42,7 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'pond') return d.size + 0.3;
   if (d.kind === 'rock') return d.size + 0.1;
   if (d.kind === 'well') return 0.7 * d.size;
+  if (d.kind === 'bowl') return 0.6 * d.size;
   return 0.15 * d.size;
 }
 

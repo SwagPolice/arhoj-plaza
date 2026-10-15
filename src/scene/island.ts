@@ -56,6 +56,7 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'pond' ? makePond(d)
       : d.kind === 'rock' ? makeRock(d)
       : d.kind === 'well' ? makeWell(d, tints[d.id])
+      : d.kind === 'bowl' ? makeBowl(d)
       : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
     obj.rotation.y = d.rot;
@@ -157,11 +158,32 @@ function makeWell(d: Decor, tint = '#9fd0ee') {
   return g;
 }
 
+const BOWL: Pt[] = [[0, 0], [0.22, 0], [0.3, 0.03], [0.46, 0.14], [0.56, 0.3], [0.58, 0.34], [0.54, 0.35], [0.43, 0.2], [0.28, 0.1], [0, 0.09]];
+
+/**
+ * Mixing bowl (Studio Mode): a wide, shallow cream bowl. Its paint is two halves (children 1 and 2)
+ * that the Studio colours and turns while it stirs; hidden while the bowl is empty.
+ */
+function makeBowl(d: Decor) {
+  const bowl = new THREE.Mesh(latheFrom(BOWL).geo, glaze('#f7f4ee'));
+  const halves = [0, Math.PI].map((start) => {
+    const half = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32, start, Math.PI), glaze('#ffffff', { roughness: 0.05 }));
+    half.rotation.x = -Math.PI / 2;
+    half.position.y = 0.2;
+    half.visible = false;
+    return half;
+  });
+  const g = new THREE.Group().add(bowl, ...halves);
+  g.scale.setScalar(d.size);
+  return g;
+}
+
 /** Height of a decoration's top, for placing the Remove button above it. */
 export function decorHeight(d: Decor) {
   if (d.kind === 'tree') return 1.95 * d.size;
   if (d.kind === 'pond') return 0.3;
   if (d.kind === 'rock') return d.size * 0.8;
   if (d.kind === 'well') return 0.5 * d.size;
+  if (d.kind === 'bowl') return 0.4 * d.size;
   return 0.3 * d.size;
 }

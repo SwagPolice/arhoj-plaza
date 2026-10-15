@@ -8,7 +8,8 @@ Two ways to play, chosen on the start screen (⇄ switches any time):
 
 - **Creative**: everything unlocked. Make characters, decorate the island freely.
 - **Studio** (v0.1): start with one bare clay ghost on a tiny island. Tap the clay it drops, make more ghosts,
-  build a glaze well for paint, and dip your ghosts. The studio keeps working while you're away (up to 8 hours).
+  build a glaze well for paint, and dip your ghosts. A mixing bowl turns two paints into a new colour (7 to discover).
+  The studio keeps working while you're away (up to 8 hours).
 
 ## Run it
 
@@ -38,7 +39,7 @@ Islands work the same way from **🛠 Decorate**: **↗ Share island** and **Imp
 
 The rules are pure functions in `src/studio/economy.ts` (rates, costs, time away), so live play and time away
 can't disagree; `tests/studio-economy.test.ts` checks the pacing (first well within about 6.5 minutes, first dip
-within about 8). The Studio save (`src/studio/state.ts`) follows the same safety rules as everything else.
+within about 8, first mixed colour within about 30). Mixing recipes are fixed, in `src/studio/mixing.ts`. The Studio save (`src/studio/state.ts`) follows the same safety rules as everything else.
 In development, `?fast` makes Studio time run 20 times faster.
 
 ## Backup & move
@@ -73,7 +74,7 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/share.ts` | Share codes and links (characters and islands) |
 | `src/backup.ts` | Backups: everything in one file or code |
 | `src/scene/island-view.ts` | What the Creative plaza and the Studio share: island, camera, characters |
-| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), screen (`studio.ts`) |
+| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), mixing recipes (`mixing.ts`), screen (`studio.ts`) |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing
