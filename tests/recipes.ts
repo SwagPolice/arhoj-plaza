@@ -109,7 +109,7 @@ export const GOLDEN_STUDIO = {
 export const ADDED_SINCE_STUDIO_V1 = {
   bowl: null,
   discovered: [],
-  merchant: { here: false, wait: 20, stay: 0, paid: 0, visits: 0 },
+  merchant: { here: false, wait: 20, stay: 0, paid: 0, visits: 0, offers: null },
   traits: {},
 };
 

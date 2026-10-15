@@ -1,15 +1,18 @@
 import { describe, expect, test } from 'vitest';
 import { advance, BOWL_COST, buyBowl, buyGhost, buyWell, comeBack, dip } from '../src/studio/economy';
-import { buyItem, giveClay, giveTrait, hasTrait, ITEMS, NEXT_VISIT, nextStep, stepOf, STEPS, stock, tidyPickups } from '../src/studio/merchant';
+import {
+  buyItem, findable, giveClay, giveTrait, hasTrait, ITEMS, NEXT_VISIT, nextStep, packBasket, RARITY, stepOf, STEPS, stock, tidyPickups,
+} from '../src/studio/merchant';
+import { mulberry32 } from '../src/util/random';
 import { bareGhost, FIRST_VISIT, newStudio, PRIMARIES, type StudioState } from '../src/studio/state';
 
 const { yellow, cobalt } = PRIMARIES;
 /** A studio with a mixing bowl, ready for the merchant. */
 const withBowl = (): StudioState => ({ ...buyBowl({ ...newStudio(0), seed: 3, purse: { clay: BOWL_COST, paint: {} } })!, lastSeen: 0 });
-/** The merchant here, and plenty to spend. */
+/** The merchant here with three of everything he can find so far, and plenty to spend. */
 const visited = (clay = 500, paint: Record<string, number> = { [yellow]: 5, [cobalt]: 5 }): StudioState => {
   const s = advance(withBowl(), FIRST_VISIT).state;
-  return { ...s, purse: { clay, paint } };
+  return { ...s, purse: { clay, paint }, merchant: { ...s.merchant, offers: ITEMS.map((i) => ({ id: i.id, left: 3 })) } };
 };
 
 describe('his visits', () => {
@@ -22,7 +25,7 @@ describe('his visits', () => {
     expect(r.state.merchant).toMatchObject({ here: true, visits: 1, stay: STEPS[0].stay });
   });
 
-  test('he stays a few minutes of play, then leaves and comes back 8 to 20 minutes later', () => {
+  test('he stays a few minutes, then leaves and comes back 2 to 3 hours later', () => {
     let s = advance(withBowl(), FIRST_VISIT).state;
     const gone = advance(s, STEPS[0].stay);
     expect(gone.visit).toBe('left');
@@ -32,11 +35,75 @@ describe('his visits', () => {
     expect(advance(s, s.merchant.wait).visit).toBe('arrived');
   });
 
-  test('if he comes while you are away, he waits for you (his stay only runs while you play)', () => {
+  test('his visits go on while you are away: he may be partway through a visit, or gone again', () => {
     const s = withBowl();
-    const back = comeBack(s, 8 * 3600 * 1000).state;
-    expect(back.merchant.here).toBe(true);
-    expect(back.merchant.stay).toBe(STEPS[0].stay);
+    const soon = comeBack(s, 120 * 1000).state; // came at 20 s, so 100 s of his stay are used up
+    expect(soon.merchant.here).toBe(true);
+    expect(soon.merchant.stay).toBeCloseTo(STEPS[0].stay - 100);
+    const later = comeBack(s, (FIRST_VISIT + STEPS[0].stay + 60) * 1000).state; // he came and went
+    expect(later.merchant.here).toBe(false);
+    expect(later.merchant.visits).toBe(1);
+  });
+
+  test('he packs a new basket each visit and takes the leftovers away with him', () => {
+    const here = advance(withBowl(), FIRST_VISIT).state;
+    expect(here.merchant.offers).toHaveLength(STEPS[0].offers);
+    const gone = advance(here, STEPS[0].stay).state;
+    expect(gone.merchant.offers).toBeNull();
+  });
+
+  test('a long time away can hold several visits, and always ends in a sensible state', () => {
+    const back = comeBack(withBowl(), 8 * 3600 * 1000).state;
+    expect(back.merchant.visits).toBeGreaterThanOrEqual(3);
+    expect(back.merchant.visits).toBeLessThanOrEqual(5);
+    if (back.merchant.here) expect(back.merchant.stay).toBeLessThanOrEqual(STEPS[0].stay);
+    else expect(back.merchant.wait).toBeLessThanOrEqual(NEXT_VISIT.max);
+  });
+});
+
+describe('his basket', () => {
+  test('4 different things at first, from what he can find, in small amounts by rarity', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const basket = packBasket(0, mulberry32(seed));
+      expect(basket).toHaveLength(4);
+      expect(new Set(basket.map((o) => o.id)).size).toBe(4);
+      for (const o of basket) {
+        const item = ITEMS.find((i) => i.id === o.id)!;
+        expect(item.step).toBe(0);
+        expect(o.left).toBeGreaterThanOrEqual(RARITY[item.rarity].min);
+        expect(o.left).toBeLessThanOrEqual(RARITY[item.rarity].max);
+      }
+    }
+  });
+
+  test('one more kind once he reaches the coast, and coast things can come', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 50; seed++) {
+      const basket = packBasket(1, mulberry32(seed));
+      expect(basket).toHaveLength(5);
+      basket.forEach((o) => seen.add(o.id));
+    }
+    expect(seen).toEqual(new Set(findable(1).map((i) => i.id)));
+  });
+
+  test('rare things turn up less often than common ones', () => {
+    let rare = 0;
+    let common = 0;
+    for (let seed = 1; seed <= 400; seed++)
+      for (const o of packBasket(0, mulberry32(seed))) {
+        if (o.id === 'broom') rare++;
+        if (o.id === 'tree') common++;
+      }
+    expect(rare).toBeLessThan(common);
+  });
+
+  test('he sells only what he brought, until it runs out', () => {
+    const s = { ...visited(), merchant: { ...visited().merchant, offers: [{ id: 'rock', left: 1 }] } };
+    expect(buyItem(s, 'tree')).toEqual({ why: 'stock' });
+    const r = buyItem(s, 'rock');
+    if (!('state' in r)) throw new Error(r.why);
+    expect(stock(r.state)).toEqual([{ ...ITEMS.find((i) => i.id === 'rock')!, left: 0 }]);
+    expect(buyItem(r.state, 'rock')).toEqual({ why: 'soldout' });
   });
 });
 
@@ -50,10 +117,10 @@ describe('his shop', () => {
     expect(r.state.merchant.paid).toBe(15);
   });
 
-  test('nothing is sold when he is away, too dear, not brought yet, or with no room', () => {
+  test('nothing is sold when he is away, too dear, not brought, or with no room', () => {
     expect(buyItem({ ...visited(), merchant: { ...visited().merchant, here: false } }, 'rock')).toEqual({ why: 'away' });
     expect(buyItem(visited(5), 'rock')).toEqual({ why: 'cost' });
-    expect(buyItem(visited(), 'shell')).toEqual({ why: 'stock' }); // the coast isn't reached yet
+    expect(buyItem({ ...visited(), merchant: { ...visited().merchant, offers: [] } }, 'rock')).toEqual({ why: 'stock' });
     const full = { ...visited(), island: { radius: 5, items: Array.from({ length: 40 }, (_, i) => ({ id: `m${i}`, kind: 'mushroom' as const, x: 0, z: 0, size: 1, rot: 0 })) } };
     expect(buyItem(full, 'rock')).toEqual({ why: 'room' });
   });
@@ -76,16 +143,14 @@ describe('his shop', () => {
     expect(giveTrait(tidy, id, 'tidy')).toBeNull();
   });
 
-  test('at 300 clay paid he reaches the coast, grows, and brings shells and sea glass; gifts count', () => {
+  test('at 300 clay paid he reaches the coast and grows; gifts count', () => {
     let s = visited(1000);
-    expect(stock(s).map((i) => i.id)).not.toContain('shell');
     expect(nextStep(s)?.name).toBe('The coast');
     s = giveClay(s, 290)!;
     expect(stepOf(s)).toBe(0);
     s = giveClay(s, 10)!;
     expect(stepOf(s)).toBe(1);
     expect(STEPS[1].scale).toBeGreaterThan(STEPS[0].scale);
-    expect(stock(s).map((i) => i.id)).toEqual(ITEMS.map((i) => i.id));
     expect(nextStep(s)).toBeNull();
     expect(giveClay({ ...s, purse: { clay: 5, paint: {} } }, 10)).toBeNull();
   });

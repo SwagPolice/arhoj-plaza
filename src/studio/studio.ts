@@ -169,8 +169,12 @@ export class Studio extends IslandView {
     if (fresh.length) this.place(fresh);
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
     if (visit) this.onVisit(visit);
-    // He's in the scene whenever the save says he's here (after loading, coming back, or a restore).
+    // The scene follows the save: he's shown if he's here (after loading or coming back), gone if he left meanwhile.
     else if (this.state.merchant.here && !this.merchant.root.visible) this.merchant.show(STEPS[stepOf(this.state)].scale);
+    else if (!this.state.merchant.here && this.merchant.ready) {
+      this.merchant.hide();
+      this.shop?.close();
+    }
     this.tidyUp(dt);
     this.animateDrops(dt);
     this.stirBowl(t);
@@ -227,7 +231,7 @@ export class Studio extends IslandView {
     const dialog = openDialog('While you were away', [
       el('p', 'muted', `Your studio kept working for ${duration(away.seconds)}. Everyone made:`),
       list,
-      ...(this.state.merchant.here ? [el('p', 'muted', '🎈 The merchant came while you were away. He is waiting for you.')] : []),
+      ...(this.state.merchant.here ? [el('p', 'muted', '🎈 The merchant is visiting right now. He won\'t stay long!')] : []),
       row(
         button('Collect', 'btn primary', () => {
           this.state = collectAway(this.state);
@@ -532,14 +536,21 @@ export class Studio extends IslandView {
       const rows = stock(s).map((item) => {
         const r = el('div', 'shop-row');
         const text = el('div', 'shop-text');
-        text.append(el('div', 'shop-name', `${item.icon} ${item.name}`), el('div', 'muted shop-blurb', item.blurb));
+        const name = el('div', 'shop-name', `${item.icon} ${item.name} `);
+        name.append(el('span', 'muted shop-left', item.left ? `×${item.left}` : ''));
+        text.append(name, el('div', 'muted shop-blurb', item.blurb));
         const price = el('div', 'shop-price', `${item.clay} clay`);
         if (item.paint) {
           const dot = el('span', 'swatch-dot');
           dot.style.background = item.paint.colour;
           price.append(' + ', dot, `${item.paint.n}`);
         }
-        const buy = button('Buy', 'btn' + (canAfford(s, item) ? ' primary' : ' off'), () => this.buy(item, draw));
+        const soldOut = item.left < 1;
+        const buy = button(soldOut ? 'Sold out' : 'Buy', 'btn' + (soldOut || !canAfford(s, item) ? ' off' : ' primary'), () => this.buy(item, draw));
+        if (soldOut) {
+          buy.disabled = true;
+          r.classList.add('sold-out');
+        }
         r.append(text, price, buy);
         return r;
       });
@@ -548,7 +559,7 @@ export class Studio extends IslandView {
         'p',
         'muted shop-trip',
         next
-          ? `You've paid him ${s.merchant.paid} clay. ${next.paid - s.merchant.paid} more and he can reach ${next.name.toLowerCase()} (new: ${next.news}).`
+          ? `You've paid him ${s.merchant.paid} clay. ${next.paid - s.merchant.paid} more and he can reach ${next.name.toLowerCase()} (new: ${next.news}, and more in his basket).`
           : `You've paid him ${s.merchant.paid} clay. He can reach ${STEPS[stepOf(s)].name.toLowerCase()} now.`,
       );
       const give = button('Give 10 clay', 'btn' + (s.purse.clay >= 10 ? '' : ' off'), () => {
@@ -558,10 +569,15 @@ export class Studio extends IslandView {
         draw();
       });
       give.title = 'Help him travel further';
+      const empty = rows.length && rows.every((r) => r.classList.contains('sold-out'));
+      if (empty) rows.push(el('p', 'muted', "You've bought everything he brought this time!"));
       body.replaceChildren(...rows, trip, ...(next ? [row(give)] : []));
     };
     draw();
-    this.shop = openDialog('The balloon merchant', [el('p', 'muted', 'He sells things he finds on his travels. Everything you pay him helps him go further.'), body]);
+    this.shop = openDialog('The balloon merchant', [
+      el('p', 'muted', 'He only brings a few things each visit. Everything you pay him helps him go further, and find more.'),
+      body,
+    ]);
     this.shop.addEventListener('close', () => (this.shop = null));
   }
 
@@ -571,7 +587,9 @@ export class Studio extends IslandView {
     }
     if (item.trait) return this.chooseOwner(item, redraw);
     const r = buyItem(this.state, item.id);
-    if (!('state' in r)) return this.toast(r.why === 'room' ? 'No room on your island for that yet.' : "You can't buy that right now.");
+    if (!('state' in r)) {
+      return this.toast(r.why === 'room' ? 'No room on your island for that yet.' : r.why === 'soldout' ? "He's sold out of that." : "You can't buy that right now.");
+    }
     this.paid(r.state);
     this.applyLayout(r.state.island);
     this.returnToIsland();
@@ -616,7 +634,7 @@ export class Studio extends IslandView {
       const step = STEPS[after];
       this.merchant.grow(step.scale);
       this.bubbles.show(this.merchant.root, this.merchant.top, `I can reach ${step.name.toLowerCase()} now!`, 0.3, 3.5);
-      this.toast(`He can reach ${step.name.toLowerCase()} now: new things in his basket!`);
+      this.toast(`He can reach ${step.name.toLowerCase()} now! Next visit he'll bring more, and things from there.`);
     }
     this.persist();
     this.render();

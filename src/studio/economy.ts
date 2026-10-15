@@ -9,7 +9,7 @@ import { placeNew } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
-import { STEPS, stepOf, stepVisit } from './merchant';
+import { stepOf, stepVisit } from './merchant';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -45,10 +45,10 @@ export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null
 
 /**
  * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
- * merchant comes and goes. `live` is false for time away: the merchant's stay only runs while you're playing.
+ * merchant comes and goes.
  */
 export function advance(
-  s: StudioState, seconds: number, live = true,
+  s: StudioState, seconds: number,
 ): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
@@ -91,7 +91,7 @@ export function advance(
     mixed = { a: bowl.a, b: bowl.b, made };
     bowl = null;
   }
-  const { merchant, visit } = stepVisit(s.merchant, !!bowlOf(s), STEPS[stepOf(s)].stay, dt, live, rand);
+  const { merchant, visit } = stepVisit(s.merchant, !!bowlOf(s), stepOf(s), dt, rand);
   return { state: { ...s, progress, wellTints, bowl, discovered, merchant, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit };
 }
 
@@ -109,7 +109,7 @@ const isEmpty = (p: Purse) => p.clay === 0 && Object.values(p.paint).every((n) =
 export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number } {
   const seconds = Math.min(AWAY_CAP, Math.max(0, (now - s.lastSeen) / 1000));
   if (seconds < AWAY_MIN) return { state: { ...s, lastSeen: now }, seconds: 0 };
-  const { state, yields } = advance(s, seconds, false);
+  const { state, yields } = advance(s, seconds);
   let away: Purse = s.away ? { clay: s.away.clay, paint: { ...s.away.paint } } : emptyPurse();
   for (const y of yields) away = addTo(away, y.what, y.amount);
   const total = (s.away?.seconds ?? 0) + seconds;

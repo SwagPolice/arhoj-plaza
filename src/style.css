@@ -258,6 +258,8 @@ body {
 .shop-row { display: flex; align-items: center; gap: 10px; }
 .shop-text { flex: 1; min-width: 0; }
 .shop-name { font-weight: 600; }
+.shop-left { font-weight: 500; font-size: 13px; }
+.sold-out .shop-text { opacity: 0.5; }
 .shop-blurb { font-size: 13px; line-height: 1.3; }
 .shop-price { white-space: nowrap; font-size: 14px; display: flex; align-items: center; gap: 3px; }
 .shop-trip { margin: 6px 0 0; font-size: 14px; }

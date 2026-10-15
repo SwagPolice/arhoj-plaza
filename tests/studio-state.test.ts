@@ -31,11 +31,11 @@ describe('studio saves', () => {
   test('the merchant and traits survive a reload; rubbish traits are cleaned up', () => {
     const s = newStudio(1000);
     const id = s.characters[0].id;
-    const saved = { ...s, merchant: { here: true, wait: 0, stay: 120, paid: 55, visits: 2 }, traits: { [id]: ['tidy' as const] } };
+    const saved = { ...s, merchant: { here: true, wait: 0, stay: 120, paid: 55, visits: 2, offers: [{ id: 'tree', left: 2 }] }, traits: { [id]: ['tidy' as const] } };
     expect(normaliseStudio(JSON.parse(JSON.stringify(studioData(saved))))).toEqual(saved);
     const messy = normaliseStudio({ ...studioData(saved), traits: { [id]: ['tidy', 'tidy', 'flying'], ghost: ['tidy'] }, merchant: { paid: -4 } }, 5);
     expect(messy.traits).toEqual({ [id]: ['tidy'] });
-    expect(messy.merchant).toEqual({ here: false, wait: 20, stay: 0, paid: 0, visits: 0 });
+    expect(messy.merchant).toEqual({ here: false, wait: 20, stay: 0, paid: 0, visits: 0, offers: null });
   });
 
   test('nothing, rubbish or an empty save gives a fresh studio, always with a ghost', () => {

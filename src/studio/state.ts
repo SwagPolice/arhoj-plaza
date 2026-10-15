@@ -22,8 +22,13 @@ export type Drop = { id: string; x: number; z: number; what: string; amount: num
 export const TRAITS = ['tidy'] as const;
 export type Trait = (typeof TRAITS)[number];
 
-/** The balloon merchant: whether he's here, seconds until he comes or of play left before he goes, and clay paid to him so far. */
-export type Merchant = { here: boolean; wait: number; stay: number; paid: number; visits: number };
+/** One thing in his basket this visit, and how many he has left. */
+export type Offer = { id: string; left: number };
+/**
+ * The balloon merchant: whether he's here, seconds until he comes or until he goes, clay paid to him so far,
+ * and what he brought this visit (null until it's packed: on arrival, or for saves from before baskets).
+ */
+export type Merchant = { here: boolean; wait: number; stay: number; paid: number; visits: number; offers: Offer[] | null };
 export const FIRST_VISIT = 20; // seconds after the mixing bowl is built
 
 /** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
@@ -50,7 +55,7 @@ export type StudioState = {
 };
 
 export const emptyPurse = (): Purse => ({ clay: 0, paint: {} });
-const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0 });
+const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0, offers: null });
 
 /** A bare clay ghost: no glaze yet, everything else picked at random (or by you). */
 export function bareGhost(over: Partial<CharacterRecipe> = {}): CharacterRecipe {
@@ -141,6 +146,9 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     stay: count(m.stay),
     paid: whole(m.paid, 0),
     visits: whole(m.visits, 0),
+    offers: Array.isArray(m.offers)
+      ? m.offers.filter(isObj).filter((x) => typeof x.id === 'string').map((x) => ({ id: x.id as string, left: whole(x.left, 0) }))
+      : null,
   };
   const ids = new Set(characters.map((c) => c.id));
   const traits: Record<string, Trait[]> = {};
