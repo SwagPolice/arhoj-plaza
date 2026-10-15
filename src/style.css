@@ -215,6 +215,15 @@ body {
   font-size: 15px;
 }
 .hud-chip.bump { animation: bump 0.35s ease-out; }
+.hud-paint { border: 0; font: inherit; cursor: pointer; }
+.hud-paint-wrap { position: relative; }
+.hud-paint-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; min-width: 140px;
+  background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px; font-size: 14px;
+}
+.hud-paint-line { display: flex; align-items: center; gap: 6px; }
+.hud-paint-n { margin-left: auto; font-weight: 600; padding-left: 12px; }
 @keyframes bump {
   0% { transform: scale(1); }
   40% { transform: scale(1.18); }
@@ -320,6 +329,7 @@ body {
 .start-card:hover, .start-card.on { border-color: var(--ink); }
 .start-emoji { font-size: 36px; }
 .start-title { font-size: 22px; font-weight: 700; }
+.start-over { margin-top: 18px; font-size: 14px; opacity: 0.8; }
 .start-blurb { font-size: 14px; color: var(--muted); line-height: 1.4; }
 @media (max-width: 520px) {
   .start-cards { grid-template-columns: 1fr; }

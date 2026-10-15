@@ -38,6 +38,11 @@ export class Studio extends IslandView {
   private flying: Flying[] = [];
   private popping: { obj: THREE.Object3D; t: number }[] = [];
   private hud = el('div', 'studio-hud');
+  private clayChip = el('span', 'hud-chip');
+  private paintChip = el('button', 'hud-chip hud-paint');
+  private paintList = el('div', 'hud-paint-list');
+  private paintOpen = false;
+  private goal = el('div', 'hud-goal');
   private bar = el('div', 'studio-bar');
   private ghostBtn = button('', 'btn primary', () => this.openNewGhost());
   private wellBtn = button('', 'btn', () => this.buildWell());
@@ -85,6 +90,20 @@ export class Studio extends IslandView {
     );
     this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.arrangeBtn);
     this.card.style.display = 'none';
+    const purse = el('div', 'hud-purse');
+    const paintWrap = el('div', 'hud-paint-wrap');
+    paintWrap.append(this.paintChip, this.paintList);
+    purse.append(this.clayChip, paintWrap);
+    this.hud.append(purse, this.goal);
+    // The paint list opens on hover with a mouse, and on tap on touch screens.
+    this.paintChip.type = 'button';
+    const openPaints = (open: boolean) => {
+      this.paintOpen = open;
+      this.render();
+    };
+    paintWrap.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && openPaints(true));
+    paintWrap.addEventListener('pointerleave', (e) => e.pointerType === 'mouse' && openPaints(false));
+    this.paintChip.addEventListener('click', () => openPaints(!this.paintOpen));
     this.addUI(this.hud, this.card, this.bar);
 
     // Only while you're in the Studio: time spent elsewhere (or in Creative) counts as time away.
@@ -105,8 +124,8 @@ export class Studio extends IslandView {
 
   enter() {
     super.enter();
-    this.welcomeBack();
     this.syncAgents(this.state.characters);
+    this.welcomeBack();
     this.showDrops();
     this.render();
   }
@@ -209,11 +228,16 @@ export class Studio extends IslandView {
 
   /** Coming back: what was made meanwhile lands on the "While you were away" card. */
   private welcomeBack() {
-    const { state } = comeBack(this.state, Date.now());
+    const hadCard = !!this.state.away;
+    const { state, seconds, ground } = comeBack(this.state, Date.now());
     this.state = state;
+    if (ground.length) this.place(ground, true);
     this.refreshTints();
     this.persist();
+    this.render();
     if (this.state.away) this.showAwayCard();
+    else if (seconds && ground.length) this.toast('Welcome back! A few things were made while you were away.');
+    else if (!hadCard && seconds && this.state.merchant.here) this.toast('The merchant is visiting right now!');
   }
 
   private showAwayCard() {
@@ -229,7 +253,7 @@ export class Studio extends IslandView {
     const list = el('ul', 'away-list');
     list.append(...lines);
     const dialog = openDialog('While you were away', [
-      el('p', 'muted', `Your studio kept working for ${duration(away.seconds)}. Everyone made:`),
+      el('p', 'muted', `While you were away (${duration(away.seconds)}), ${this.tidyNames()} tidied up:`),
       list,
       ...(this.state.merchant.here ? [el('p', 'muted', '🎈 The merchant is visiting right now. He won\'t stay long!')] : []),
       row(
@@ -253,9 +277,18 @@ export class Studio extends IslandView {
     return obj?.userData.dropId ?? null;
   }
 
-  /** Fresh yields land near whoever made them; anything past the limit is held for later. */
-  private place(yields: Yield[]) {
+  /**
+   * Fresh yields land near whoever made them, with a little arc; past the 30-drop limit, nothing more is made.
+   * `quietly` (things made while you were away): they're already lying about, anywhere on the island.
+   */
+  private place(yields: Yield[], quietly = false) {
+    const anywhere = () => {
+      const r = (this.state.island.radius - 0.8) * Math.sqrt(Math.random());
+      const a = Math.random() * Math.PI * 2;
+      return new THREE.Vector3(Math.cos(a) * r, 0.5, Math.sin(a) * r);
+    };
     const from = (y: Yield) => {
+      if (quietly) return anywhere();
       const agent = this.agents.find((a) => a.recipe.id === y.from);
       if (agent) return new THREE.Vector3(agent.pos.x, agent.built.height * 0.6, agent.pos.y);
       const well = this.state.island.items.find((d) => d.id === y.from);
@@ -266,7 +299,7 @@ export class Studio extends IslandView {
     const starts = yields.map(from);
     const r = dropOnGround(this.state, yields, (_y, i) => this.landingSpot(starts[i]));
     this.state = r.state;
-    for (const { drop, index } of r.dropped) this.addDrop(drop, starts[index]);
+    for (const { drop, index } of r.dropped) this.addDrop(drop, quietly ? null : starts[index]);
     if (yields.some((y) => this.state.island.items.some((w) => w.id === y.from))) this.refreshTints();
   }
 
@@ -491,6 +524,12 @@ export class Studio extends IslandView {
     }
     this.persist();
     this.render();
+  }
+
+  private dot(colour: string) {
+    const d = el('span', 'swatch-dot');
+    d.style.background = colour;
+    return d;
   }
 
   private nearestTo(p: { x: number; z: number } | null): Agent | undefined {
@@ -737,6 +776,13 @@ export class Studio extends IslandView {
     this.showCard(id);
   }
 
+  /** "Pip", "Pip and Mochi", "Pip, Mochi and Bo": who is Tidy, for sentences. */
+  private tidyNames() {
+    const names = this.state.characters.filter((c) => hasTrait(this.state, c.id, 'tidy')).map((c) => c.name || 'someone');
+    if (names.length < 2) return names[0] ?? 'your tidy ones';
+    return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  }
+
   /** The first time of something gets a happy bubble from someone nearby. */
   private firstTime(what: string, emoji: string, who?: Agent) {
     if (this.state.firsts.includes(what)) return;
@@ -749,26 +795,27 @@ export class Studio extends IslandView {
 
   private render() {
     const s = this.state;
-    const chip = (colour: string, text: string, key: string) => {
-      const c = el('span', 'hud-chip');
-      const dot = el('span', 'swatch-dot');
-      dot.style.background = colour;
-      c.append(dot, text);
-      c.dataset.key = key;
-      return c;
-    };
-    const chips = [chip(CLAY, `${s.purse.clay} clay`, `clay:${s.purse.clay}`)];
-    for (const colour of [...Object.values(PRIMARIES), ...Object.keys(s.purse.paint)]) {
-      const n = s.purse.paint[colour] ?? 0;
-      if (n > 0 && !chips.some((c) => c.dataset.key?.startsWith(colour))) chips.push(chip(colour, `${n}`, `${colour}:${n}`));
-    }
-    // Bump whatever changed since last time.
-    const before = new Set(this.shown.split('|'));
-    for (const c of chips) if (this.shown && !before.has(c.dataset.key!)) c.classList.add('bump');
-    this.shown = chips.map((c) => c.dataset.key).join('|');
-    const purse = el('div', 'hud-purse');
-    purse.append(...chips);
-    this.hud.replaceChildren(purse, el('div', 'hud-goal', nextGoal(s)));
+    // Two quiet counters: clay, and all your paint together (hover or tap it for each colour).
+    const paints = [...Object.values(PRIMARIES), ...Object.keys(s.purse.paint)]
+      .filter((c, i, all) => all.indexOf(c) === i && (s.purse.paint[c] ?? 0) > 0);
+    const totalPaint = paints.reduce((n, c) => n + s.purse.paint[c], 0);
+    const shown = `${s.purse.clay}|${totalPaint}`;
+    const [clayWas, paintWas] = this.shown.split('|');
+    this.clayChip.replaceChildren(this.dot(CLAY), `${s.purse.clay} clay`);
+    this.paintChip.replaceChildren(el('span', '', '🎨'), `${totalPaint} paint`);
+    this.paintChip.style.display = totalPaint ? '' : 'none';
+    if (this.shown && clayWas !== String(s.purse.clay)) bump(this.clayChip);
+    if (this.shown && paintWas !== String(totalPaint)) bump(this.paintChip);
+    this.shown = shown;
+    this.paintList.replaceChildren(
+      ...paints.map((c) => {
+        const line = el('div', 'hud-paint-line');
+        line.append(this.dot(c), `${Name(c)}`, el('span', 'hud-paint-n', String(s.purse.paint[c])));
+        return line;
+      }),
+    );
+    this.paintList.style.display = this.paintOpen && totalPaint ? '' : 'none';
+    this.goal.textContent = nextGoal(s);
 
     const gc = ghostCost(s);
     const wc = wellCost(s);
@@ -812,6 +859,13 @@ function makeDrop(d: Drop): THREE.Object3D {
   const target = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
   g.add(blob, target);
   return g;
+}
+
+/** Replay the little bump of a counter that just changed. */
+function bump(chip: HTMLElement) {
+  chip.classList.remove('bump');
+  void chip.offsetWidth; // restart the animation
+  chip.classList.add('bump');
 }
 
 /** A build button: what it is, then its price (on its own line on phones, where the bar is narrow). */

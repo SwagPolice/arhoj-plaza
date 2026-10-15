@@ -165,7 +165,7 @@ describe('Tidy', () => {
 });
 
 describe('pacing', () => {
-  test('a player who plays the loop meets the merchant within about 15 minutes', () => {
+  test('a player who plays the loop meets the merchant within about 20 minutes', () => {
     let s: StudioState = { ...newStudio(0), seed: 11 };
     let metAt = -1;
     for (let t = 1; t <= 30 * 60 && metAt < 0; t++) {
@@ -180,6 +180,6 @@ describe('pacing', () => {
       } else s = buyBowl(s) ?? s;
     }
     expect(metAt).toBeGreaterThan(0);
-    expect(metAt).toBeLessThanOrEqual(15 * 60);
+    expect(metAt).toBeLessThanOrEqual(20 * 60);
   });
 });

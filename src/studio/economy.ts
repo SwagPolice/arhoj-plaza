@@ -1,7 +1,7 @@
 /*
  * The Studio economy as pure functions: a state goes in, a new state comes out, nothing else is touched.
- * Live play and time away run the same `advance`, so they can never disagree.
- * All numbers here are first guesses; tests/studio-economy.test.ts checks the pacing they give.
+ * Live play and time away run the same `advance`, so they can never disagree (time away just runs slower).
+ * The numbers aim for a calm pace; tests/studio-economy.test.ts checks the pacing they give.
  */
 import type { CharacterRecipe, Personality } from '../character/recipe';
 import { defaultLayer } from '../character/recipe';
@@ -9,25 +9,29 @@ import { placeNew } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
-import { stepOf, stepVisit } from './merchant';
+import { hasTrait, stepOf, stepVisit } from './merchant';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
-  bouncy: { every: 8, double: 0 },
-  calm: { every: 17, double: 0.25 },
-  curious: { every: 12, double: 0 },
-  shy: { every: 14, double: 0 },
+  bouncy: { every: 16, double: 0 },
+  calm: { every: 32, double: 0.25 },
+  curious: { every: 22, double: 0 },
+  shy: { every: 26, double: 0 },
 };
-export const PAINT_SHARE = 0.3; // a dipped character's drop is paint this often
-export const WELL_EVERY = 60; // seconds per paint from a glaze well
+export const PAINT_SHARE = 0.1; // a dipped character's drop is paint this often
+export const WELL_EVERY = 150; // seconds per paint from a glaze well
 export const AWAY_CAP = 8 * 3600; // time away counts up to 8 hours
-export const AWAY_MIN = 60; // shorter breaks just carry on, no card
+export const AWAY_MIN = 60; // shorter breaks just carry on
+export const AWAY_SPEED = 1 / 3; // while you're away, the studio works at a third of its speed
+export const TIDY_AWAY = 60; // drops a Tidy character picks up per hour while you're away
 export const MIX_TIME = 5; // seconds the bowl stirs
 export const MIX_MAKES = 2; // drops of the new colour from one mix
 export const BOWL_COST = 40;
 
-export const ghostCost = (s: StudioState) => 10 + 5 * (s.ghostsMade - 1);
-export const wellCost = (s: StudioState) => [20, 35, 55].at(s.wellsBuilt) ?? 55 + 30 * (s.wellsBuilt - 2);
+/** Each new ghost costs half as much again as the last (10, 15, 23, 34, 51…), so the studio grows slowly. */
+export const ghostCost = (s: StudioState) => Math.round(10 * 1.5 ** (s.ghostsMade - 1));
+/** Wells: 15, 60, 180, then three times the last each time. */
+export const wellCost = (s: StudioState) => (s.wellsBuilt === 0 ? 15 : 60 * 3 ** (s.wellsBuilt - 1));
 
 /**
  * One thing made: by whom (character, well or bowl id), what ('clay' or a paint colour), how much.
@@ -45,20 +49,21 @@ export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null
 
 /**
  * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
- * merchant comes and goes.
+ * merchant comes and goes. `speed` slows the making down (time away) but not the bowl or the merchant.
  */
 export function advance(
-  s: StudioState, seconds: number,
+  s: StudioState, seconds: number, speed = 1,
 ): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
   const yields: Yield[] = [];
   const dt = Math.max(0, seconds);
+  const making = dt * speed;
 
   for (const c of s.characters) {
     const { every, double } = RATES[c.personality];
-    const p = (progress[c.id] ?? rand() * every) + dt; // newcomers start part-way, so drops don't all land at once
+    const p = (progress[c.id] ?? rand() * every) + making; // newcomers start part-way, so drops don't all land at once
     const n = Math.floor(p / every);
     progress[c.id] = p - n * every;
     const colour = topColour(c);
@@ -69,7 +74,7 @@ export function advance(
   }
   const primaries = Object.values(PRIMARIES);
   for (const w of s.island.items.filter((d) => d.kind === 'well')) {
-    const p = (progress[w.id] ?? 0) + dt;
+    const p = (progress[w.id] ?? 0) + making;
     const n = Math.floor(p / WELL_EVERY);
     progress[w.id] = p - n * WELL_EVERY;
     for (let i = 0; i < n; i++) {
@@ -103,17 +108,27 @@ export function addTo(p: Purse, what: string, amount: number): Purse {
 const isEmpty = (p: Purse) => p.clay === 0 && Object.values(p.paint).every((n) => n === 0);
 
 /**
- * Coming back after time away (or a reload): what was made meanwhile goes on the "While you were away"
- * card, capped at 8 hours. A clock that went backwards makes nothing; a short break just carries on.
+ * Coming back after time away (or a reload), counted up to 8 hours; a clock that went backwards makes nothing,
+ * and a short break just carries on. Meanwhile the studio worked at a third of its speed, and nobody collected:
+ * - a mix that finished in the bowl goes into your purse (it was your doing);
+ * - Tidy characters picked up to 60 drops an hour each: that's the "While you were away" card;
+ * - everything else is returned as `ground`, to lie on the island for you (as much as fits).
  */
-export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number } {
+export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number; ground: Yield[] } {
   const seconds = Math.min(AWAY_CAP, Math.max(0, (now - s.lastSeen) / 1000));
-  if (seconds < AWAY_MIN) return { state: { ...s, lastSeen: now }, seconds: 0 };
-  const { state, yields } = advance(s, seconds);
+  if (seconds < AWAY_MIN) return { state: { ...s, lastSeen: now }, seconds: 0, ground: [] };
+  const { state, yields } = advance(s, seconds, AWAY_SPEED);
+  const bowl = bowlOf(s)?.id ?? 'bowl';
+  let purse = state.purse;
+  for (const y of yields.filter((y) => y.from === bowl)) purse = addTo(purse, y.what, y.amount);
+  const made = yields.filter((y) => y.from !== bowl);
+  const tidy = s.characters.filter((c) => hasTrait(s, c.id, 'tidy')).length;
+  const picked = Math.floor((tidy * TIDY_AWAY * seconds) / 3600);
   let away: Purse = s.away ? { clay: s.away.clay, paint: { ...s.away.paint } } : emptyPurse();
-  for (const y of yields) away = addTo(away, y.what, y.amount);
-  const total = (s.away?.seconds ?? 0) + seconds;
-  return { state: { ...state, away: isEmpty(away) ? s.away : { ...away, seconds: total }, lastSeen: now }, seconds };
+  for (const y of made.slice(0, picked)) away = addTo(away, y.what, y.amount);
+  const card = isEmpty(away) ? s.away : { ...away, seconds: (s.away?.seconds ?? 0) + seconds };
+  const ground = made.slice(picked, picked + Math.max(0, MAX_GROUND - s.ground.length));
+  return { state: { ...state, purse, away: card, lastSeen: now }, seconds, ground };
 }
 
 export function collectAway(s: StudioState): StudioState {
@@ -124,23 +139,25 @@ export function collectAway(s: StudioState): StudioState {
   return { ...s, purse, away: null };
 }
 
-/** Put fresh yields on the ground at (x, z) spots chosen by `spot`; anything past the limit is held, not lost. */
+/**
+ * Put fresh yields on the ground at (x, z) spots chosen by `spot`. The island holds at most 30 drops: when it's full,
+ * nothing more is made until you collect (what older saves held back still comes out as you collect).
+ */
 export function dropOnGround(
   s: StudioState,
   yields: Yield[],
   spot: (y: Yield, i: number) => { x: number; z: number },
 ): { state: StudioState; dropped: { drop: Drop; index: number }[] } {
   const ground = [...s.ground];
-  let held = s.held;
   const dropped: { drop: Drop; index: number }[] = [];
   yields.forEach((y, i) => {
     if (ground.length < MAX_GROUND) {
       const d: Drop = { id: `d${s.seed.toString(36)}-${i}-${Math.random().toString(36).slice(2, 7)}`, ...spot(y, i), what: y.what, amount: y.amount };
       ground.push(d);
       dropped.push({ drop: d, index: i });
-    } else held = addTo(held, y.what, y.amount);
+    }
   });
-  return { state: { ...s, ground, held }, dropped };
+  return { state: { ...s, ground }, dropped };
 }
 
 /** Collect a drop: it goes into your purse. If anything was held back, one held thing comes out to replace it. */
