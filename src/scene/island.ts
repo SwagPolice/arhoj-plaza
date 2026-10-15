@@ -57,6 +57,8 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'rock' ? makeRock(d)
       : d.kind === 'well' ? makeWell(d, tints[d.id])
       : d.kind === 'bowl' ? makeBowl(d)
+      : d.kind === 'shell' ? makeShell(d)
+      : d.kind === 'seaglass' ? makeSeaGlass(d)
       : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
     obj.rotation.y = d.rot;
@@ -178,6 +180,39 @@ function makeBowl(d: Decor) {
   return g;
 }
 
+/** A scallop shell lying on the grass: a fan of ribs in a pale blush glaze, hinged at the back. */
+function makeShell(d: Decor) {
+  const g = new THREE.Group();
+  const mat = glaze('#f3d5c8', { roughness: 0.4 });
+  const ribs = 9;
+  for (let i = 0; i < ribs; i++) {
+    const a = -1.05 + (i / (ribs - 1)) * 2.1; // spread of the fan
+    const rib = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.2, 4, 8), mat);
+    rib.rotation.set(Math.PI / 2 - 0.25, 0, -a);
+    rib.position.set(Math.sin(a) * 0.12, 0.045, -0.06 + Math.cos(a) * 0.12);
+    g.add(rib);
+  }
+  const hinge = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), glaze('#e8bfae', { roughness: 0.4 }));
+  hinge.scale.set(1.4, 0.7, 0.8);
+  hinge.position.set(0, 0.03, -0.07);
+  g.add(hinge);
+  g.scale.setScalar(d.size * 1.5);
+  return g;
+}
+
+/** A pebble of sea glass: frosted, sea-green, worn smooth. */
+function makeSeaGlass(d: Decor) {
+  const pebble = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13, 20, 14),
+    new THREE.MeshPhysicalMaterial({ color: '#9fd8c4', transmission: 0.85, thickness: 0.2, roughness: 0.55, ior: 1.5 }),
+  );
+  pebble.scale.set(1.25, 0.45, 0.9);
+  pebble.position.y = 0.05;
+  const g = new THREE.Group().add(pebble);
+  g.scale.setScalar(d.size);
+  return g;
+}
+
 /** Height of a decoration's top, for placing the Remove button above it. */
 export function decorHeight(d: Decor) {
   if (d.kind === 'tree') return 1.95 * d.size;
@@ -185,5 +220,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'rock') return d.size * 0.8;
   if (d.kind === 'well') return 0.5 * d.size;
   if (d.kind === 'bowl') return 0.4 * d.size;
+  if (d.kind === 'shell') return 0.2 * d.size;
+  if (d.kind === 'seaglass') return 0.15 * d.size;
   return 0.3 * d.size;
 }

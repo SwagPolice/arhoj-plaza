@@ -9,18 +9,22 @@ import { loadStudio, saveStudio } from '../storage';
 import { button, el } from '../ui/dom';
 import { openDialog, row } from '../ui/share-dialogs';
 import type { Agent } from '../plaza/behaviour';
+import { Decorator } from '../plaza/decorate';
 import {
   addTo, advance, BOWL_COST, bowlOf, buyBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
   nextGoal, startMix, wellCost, type Mixed, type Yield,
 } from './economy';
 import { colourName, mixResult, recipeFor } from './mixing';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
+import { buyItem, canAfford, giveClay, hasTrait, nextStep, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
+import { MerchantBalloon } from './merchant-view';
 
 const PERSONALITY_ICON: Record<Personality, string> = { calm: '🍵', curious: '🔍', shy: '🌱', bouncy: '🎵' };
 const EYE_LABELS: Record<Eyes, string> = { open: 'Open', tired: 'Tired', sleepy: 'Sleeping', happy: 'Happy', crossed: 'Crossed' };
 const Name = (hex: string) => colourName(hex).replace(/^./, (c) => c.toUpperCase());
 const LAND = 0.45; // seconds for a drop to arc to the ground
 const POP = 0.25; // seconds for a collected drop to pop away
+const TIDY_PAUSE = 0.8; // seconds between a Tidy character's pickups
 
 type Flying = { obj: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; t: number };
 
@@ -38,6 +42,12 @@ export class Studio extends IslandView {
   private ghostBtn = button('', 'btn primary', () => this.openNewGhost());
   private wellBtn = button('', 'btn', () => this.buildWell());
   private bowlBtn = button('', 'btn', () => this.buildBowl());
+  private arrangeBtn = button('Arrange', 'btn', () => this.setArranging(true));
+  private decorator: Decorator;
+  private merchant: MerchantBalloon;
+  private shop: HTMLDialogElement | null = null;
+  private tidyRest = new Map<string, number>(); // seconds before a Tidy character goes after the next drop
+  private tidyPick = new Map<string, number>(); // seconds before it can pick up another
   private card = el('div', 'card studio-card');
   private cardFor: string | null = null;
   private shown = ''; // what the HUD last showed, to bump only what changed
@@ -58,7 +68,22 @@ export class Studio extends IslandView {
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('fast')) this.speed = 20;
 
     this.scene.add(this.drops);
-    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn);
+    this.merchant = new MerchantBalloon(this.scene);
+    // Arranging what you bought: Creative's Decorate tools, without adding, removing or resizing the island.
+    this.decorator = new Decorator(
+      {
+        canvas: renderer.domElement,
+        camera: this.camera,
+        controls: this.controls,
+        ui: this.layer,
+        layout: () => this.layout,
+        island: () => this.island,
+        commit: (layout) => this.applyLayout(layout),
+        done: () => this.setArranging(false),
+      },
+      { full: false, tip: 'Drag things to move them · tap one to turn or resize it' },
+    );
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.arrangeBtn);
     this.card.style.display = 'none';
     this.addUI(this.hud, this.card, this.bar);
 
@@ -80,9 +105,16 @@ export class Studio extends IslandView {
   }
 
   leave() {
+    if (this.decorator.active) this.setArranging(false);
+    this.shop?.close();
     this.persist();
     super.leave();
     this.card.style.display = 'none';
+  }
+
+  resize(w: number, h: number) {
+    super.resize(w, h);
+    this.merchant?.setSpot(this.layout.radius, w / h >= 0.8);
   }
 
   // ---------- IslandView hooks ----------
@@ -101,9 +133,24 @@ export class Studio extends IslandView {
     return this.state?.wellTints ?? {};
   }
 
+  // While arranging, everyone holds still and the camera may zoom out further.
+  protected get frozen() {
+    return !!this.decorator?.active;
+  }
+  protected get wideView() {
+    return !!this.decorator?.active;
+  }
+
+  protected onLayoutApplied() {
+    this.decorator?.refresh();
+  }
+
   protected onUpdate(dt: number, t: number) {
+    this.decorator.update(dt, this.w, this.h);
+    this.merchant.update(dt, t, this.camera);
+    if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
-    const { state, yields, mixed } = advance(this.state, dt * this.speed);
+    const { state, yields, mixed, visit } = advance(this.state, dt * this.speed);
     this.state = state;
     // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
     // is too full for it to land (it shouldn't vanish into the held pile); everything else lands on the ground.
@@ -114,12 +161,17 @@ export class Studio extends IslandView {
     const fresh = yields.filter((y) => !direct.includes(y));
     if (fresh.length) this.place(fresh);
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
+    if (visit) this.onVisit(visit);
+    // He's in the scene whenever the save says he's here (after loading, coming back, or a restore).
+    else if (this.state.merchant.here && !this.merchant.root.visible) this.merchant.show(STEPS[stepOf(this.state)].scale);
+    this.tidyUp(dt);
     this.animateDrops(dt);
     this.stirBowl(t);
     if ((this.saveClock += dt) > 5) this.persist();
   }
 
   protected onTap(e: PointerEvent) {
+    if (this.decorator.active) return; // taps belong to the decorations
     // Drops first: they're small and usually what you meant to tap.
     this.aim(e);
     const hit = this.raycaster.intersectObjects(this.drops.children, true)[0];
@@ -129,6 +181,7 @@ export class Studio extends IslandView {
     const bowl = bowlOf(this.state);
     const bowlObj = bowl && this.island.decor.get(bowl.id);
     if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
+    if (this.merchant.hit(this.raycaster)) return this.openShop();
     const agent = this.pickAgent(e);
     if (!agent) {
       this.card.style.display = 'none';
@@ -166,6 +219,7 @@ export class Studio extends IslandView {
     const dialog = openDialog('While you were away', [
       el('p', 'muted', `Your studio kept working for ${duration(away.seconds)}. Everyone made:`),
       list,
+      ...(this.state.merchant.here ? [el('p', 'muted', '🎈 The merchant came while you were away. He is waiting for you.')] : []),
       row(
         button('Collect', 'btn primary', () => {
           this.state = collectAway(this.state);
@@ -439,6 +493,169 @@ export class Studio extends IslandView {
     }
   }
 
+  // ---------- the merchant ----------
+
+  private onVisit(visit: 'arrived' | 'left') {
+    if (visit === 'arrived') {
+      this.merchant.arrive(STEPS[stepOf(this.state)].scale);
+      this.toast(this.state.merchant.visits === 1 ? 'A balloon is coming! The merchant has arrived: tap him to see what he brought.' : 'The merchant is back! Tap him to see what he brought.');
+    } else {
+      this.shop?.close();
+      this.merchant.leave();
+      this.toast("The merchant floated off. He'll be back.");
+    }
+    this.persist();
+    this.render();
+  }
+
+  /** His shop: what he brought, what it costs, and how far he can travel. */
+  private openShop() {
+    const body = el('div', 'shop');
+    const draw = () => {
+      const s = this.state;
+      const rows = stock(s).map((item) => {
+        const r = el('div', 'shop-row');
+        const text = el('div', 'shop-text');
+        text.append(el('div', 'shop-name', `${item.icon} ${item.name}`), el('div', 'muted shop-blurb', item.blurb));
+        const price = el('div', 'shop-price', `${item.clay} clay`);
+        if (item.paint) {
+          const dot = el('span', 'swatch-dot');
+          dot.style.background = item.paint.colour;
+          price.append(' + ', dot, `${item.paint.n}`);
+        }
+        const buy = button('Buy', 'btn' + (canAfford(s, item) ? ' primary' : ' off'), () => this.buy(item, draw));
+        r.append(text, price, buy);
+        return r;
+      });
+      const next = nextStep(s);
+      const trip = el(
+        'p',
+        'muted shop-trip',
+        next
+          ? `You've paid him ${s.merchant.paid} clay. ${next.paid - s.merchant.paid} more and he can reach ${next.name.toLowerCase()} (new: ${next.news}).`
+          : `You've paid him ${s.merchant.paid} clay. He can reach ${STEPS[stepOf(s)].name.toLowerCase()} now.`,
+      );
+      const give = button('Give 10 clay', 'btn' + (s.purse.clay >= 10 ? '' : ' off'), () => {
+        const given = giveClay(this.state, 10);
+        if (!given) return this.toast('You need 10 clay to give.');
+        this.paid(given);
+        draw();
+      });
+      give.title = 'Help him travel further';
+      body.replaceChildren(...rows, trip, ...(next ? [row(give)] : []));
+    };
+    draw();
+    this.shop = openDialog('The balloon merchant', [el('p', 'muted', 'He sells things he finds on his travels. Everything you pay him helps him go further.'), body]);
+    this.shop.addEventListener('close', () => (this.shop = null));
+  }
+
+  private buy(item: Item, redraw: () => void) {
+    if (!canAfford(this.state, item)) {
+      return this.toast(item.paint ? `${item.name} costs ${item.clay} clay and ${item.paint.n} ${colourName(item.paint.colour)} paint.` : `${item.name} costs ${item.clay} clay.`);
+    }
+    if (item.trait) return this.chooseOwner(item, redraw);
+    const r = buyItem(this.state, item.id);
+    if (!('state' in r)) return this.toast(r.why === 'room' ? 'No room on your island for that yet.' : "You can't buy that right now.");
+    this.paid(r.state);
+    this.applyLayout(r.state.island);
+    this.returnToIsland();
+    const placed = r.placed ? this.state.island.items.find((d) => d.id === r.placed) : null;
+    const agent = this.nearestTo(placed ?? null);
+    if (agent) this.say(agent, '🎉', 0.2);
+    this.toast(`${item.name} placed on your island. Arrange moves it.`);
+    redraw();
+  }
+
+  /** The broom (or any trait item) goes to someone: pick who. */
+  private chooseOwner(item: Item, redraw: () => void) {
+    const trait = item.trait!;
+    const who = this.state.characters.filter((c) => !hasTrait(this.state, c.id, trait));
+    if (!who.length) return this.toast('Everyone already has one!');
+    const chips = el('div', 'chips');
+    const dialog = openDialog(`Who gets the ${item.name.toLowerCase()}?`, [
+      el('p', 'muted', 'They become Tidy: they pick up drops near them by themselves.'),
+      chips,
+    ]);
+    for (const c of who)
+      chips.append(
+        button(`${PERSONALITY_ICON[c.personality]} ${c.name || 'Unnamed'}`, 'chip', () => {
+          const r = buyItem(this.state, item.id, c.id);
+          if (!('state' in r)) return this.toast("You can't buy that right now.");
+          this.paid(r.state);
+          const agent = this.agents.find((a) => a.recipe.id === c.id);
+          if (agent) this.say(agent, '🧹');
+          this.toast(`${c.name || 'They'} became Tidy!`);
+          dialog.close();
+          redraw();
+        }),
+      );
+  }
+
+  /** After paying him: save, and if he can now travel further, he grows and says so. */
+  private paid(next: StudioState) {
+    const before = stepOf(this.state);
+    this.state = next;
+    const after = stepOf(next);
+    if (after > before) {
+      const step = STEPS[after];
+      this.merchant.grow(step.scale);
+      this.bubbles.show(this.merchant.root, this.merchant.top, `I can reach ${step.name.toLowerCase()} now!`, 0.3, 3.5);
+      this.toast(`He can reach ${step.name.toLowerCase()} now: new things in his basket!`);
+    }
+    this.persist();
+    this.render();
+  }
+
+  // ---------- traits ----------
+
+  /** Tidy characters pick up drops near them, and now and then stroll over to the nearest one. */
+  private tidyUp(dt: number) {
+    const tidy = this.agents.filter((a) => hasTrait(this.state, a.recipe.id, 'tidy'));
+    if (!tidy.length) return;
+    const busy = new Set([...this.flying, ...this.popping].map((f) => f.obj.userData.dropId));
+    const ground = this.state.ground.filter((d) => !busy.has(d.id));
+    // Each picks up one drop at a time, with a little pause between (so they tidy, rather than hoover).
+    for (const a of tidy) {
+      const wait = (this.tidyPick.get(a.recipe.id) ?? 0) - dt;
+      this.tidyPick.set(a.recipe.id, wait);
+      if (wait > 0) continue;
+      const id = tidyPickups(ground, [{ x: a.pos.x, z: a.pos.y }])[0];
+      if (!id) continue;
+      this.collectDrop(id);
+      ground.splice(ground.findIndex((d) => d.id === id), 1);
+      this.tidyPick.set(a.recipe.id, TIDY_PAUSE);
+    }
+    for (const a of tidy) {
+      const rest = (this.tidyRest.get(a.recipe.id) ?? 2) - dt;
+      this.tidyRest.set(a.recipe.id, rest);
+      if (rest > 0 || a.state !== 'idle' || !ground.length) continue;
+      const near = ground.reduce((m, d) => (Math.hypot(d.x - a.pos.x, d.z - a.pos.y) < Math.hypot(m.x - a.pos.x, m.z - a.pos.y) ? d : m));
+      a.target.set(near.x, near.z);
+      a.state = 'walk';
+      a.walkTime = 0;
+      this.tidyRest.set(a.recipe.id, 3 + Math.random() * 3);
+    }
+  }
+
+  // ---------- arranging ----------
+
+  private setArranging(on: boolean) {
+    if (on === this.decorator.active) return;
+    this.bar.style.display = this.hud.style.display = on ? 'none' : '';
+    this.card.style.display = 'none';
+    this.cardFor = null;
+    this.bubbles.clear();
+    this.drops.visible = !on;
+    // Characters step off the island while arranging, so anything can go anywhere.
+    for (const a of this.agents) a.built.root.visible = !on;
+    if (on) this.decorator.enter();
+    else {
+      this.decorator.leave();
+      this.returnToIsland();
+    }
+    this.fitToIsland();
+  }
+
   private showCard(id: string) {
     const r = this.state.characters.find((c) => c.id === id);
     if (!r) return;
@@ -447,6 +664,7 @@ export class Studio extends IslandView {
       el('div', 'card-name', r.name || 'Unnamed'),
       el('div', 'muted', `${PERSONALITY_ICON[r.personality]} ${r.personality}`),
     ];
+    if (hasTrait(this.state, id, 'tidy')) parts.push(el('div', 'card-trait', '✨ Tidy: picks up drops nearby'));
     if (r.layers.length) {
       parts.push(el('p', 'card-line', `Dipped in ${colourName(r.layers[0].colour)}. It sometimes drops that paint.`));
     } else {
@@ -528,6 +746,7 @@ export class Studio extends IslandView {
     priced(this.bowlBtn, 'Mixing bowl', BOWL_COST);
     this.bowlBtn.style.display = s.wellsBuilt && !bowlOf(s) ? '' : 'none';
     this.bowlBtn.classList.toggle('off', s.purse.clay < BOWL_COST);
+    this.arrangeBtn.style.display = s.island.items.length ? '' : 'none';
     if (this.cardFor) this.showCard(this.cardFor);
   }
 

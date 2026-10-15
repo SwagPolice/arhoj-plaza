@@ -104,3 +104,22 @@ export const GOLDEN_STUDIO = {
   lastSeen: 1_792_000_000_000,
   seed: 12345,
 };
+
+/** What a Studio save from before these fields existed loads them as: nothing stirring, nothing found, the merchant not met yet. */
+export const ADDED_SINCE_STUDIO_V1 = {
+  bowl: null,
+  discovered: [],
+  merchant: { here: false, wait: 20, stay: 0, paid: 0, visits: 0 },
+  traits: {},
+};
+
+// An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.
+export const GOLDEN_ISLAND_SHORE = {
+  radius: 6.5,
+  items: [
+    { id: 'a', kind: 'shell' as const, x: 1.2, z: 2.1, size: 1.2, rot: 0.8 },
+    { id: 'b', kind: 'seaglass' as const, x: -0.9, z: 2.4, size: 0.9, rot: 2.1 },
+    { id: 'c', kind: 'tree' as const, x: -3, z: -2, size: 1.1, rot: 0 },
+    { id: 'd', kind: 'mushroom' as const, x: 0.3, z: -0.8, size: 1, rot: 0 },
+  ],
+};

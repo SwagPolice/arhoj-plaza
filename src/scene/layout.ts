@@ -7,11 +7,11 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl'] as const; // well, bowl: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass'] as const; // well, bowl: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
- * One decoration. `size` is a scale for trees and mushrooms, and a radius for ponds and rocks.
+ * One decoration. `size` is a scale for trees, mushrooms, shells and sea glass, and a radius for ponds and rocks.
  * `rot` is how far it's turned, in radians (added after version 1 shipped; missing means 0).
  */
 export type Decor = { id: string; kind: DecorKind; x: number; z: number; size: number; rot: number };
@@ -28,13 +28,15 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   mushroom: { min: 0.6, max: 1.6 },
   well: { min: 1, max: 1 },
   bowl: { min: 1, max: 1 },
+  shell: { min: 0.6, max: 1.6 },
+  seaglass: { min: 0.6, max: 1.6 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
-export const canTurn = (kind: DecorKind) => kind === 'rock';
+export const canTurn = (kind: DecorKind) => kind === 'rock' || kind === 'shell' || kind === 'seaglass';
 
-/** Trees, ponds and rocks block walking and can't overlap each other; mushrooms are little and walk-through. */
-export const blocksWalking = (kind: DecorKind) => kind !== 'mushroom';
+/** Trees, ponds and rocks block walking and can't overlap each other; mushrooms, shells and sea glass are little and walk-through. */
+export const blocksWalking = (kind: DecorKind) => kind !== 'mushroom' && kind !== 'shell' && kind !== 'seaglass';
 
 /** How much ground an object takes up (a circle of this radius). */
 export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
@@ -43,6 +45,8 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'rock') return d.size + 0.1;
   if (d.kind === 'well') return 0.7 * d.size;
   if (d.kind === 'bowl') return 0.6 * d.size;
+  if (d.kind === 'shell') return 0.32 * d.size;
+  if (d.kind === 'seaglass') return 0.18 * d.size;
   return 0.15 * d.size;
 }
 
@@ -74,7 +78,7 @@ export function canPlace(layout: IslandLayout, item: Decor, x: number, z: number
     if (blocksWalking(item.kind) && blocksWalking(o.kind)) return d >= fp + footprint(o);
     if (blocksWalking(item.kind)) return d >= fp + 0.05; // a big thing may not land on a mushroom
     if (blocksWalking(o.kind)) return d >= footprint(o) + 0.05; // a mushroom may sit right next to a tree
-    return d >= 0.25; // mushrooms just don't stack
+    return d >= Math.max(0.25, (fp + footprint(o)) * 0.8); // little things just don't stack
   });
 }
 

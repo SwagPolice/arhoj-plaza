@@ -4,7 +4,7 @@ import { decodeCharacter, decodeIsland, ShareError } from '../src/share';
 import { randomRecipe } from '../src/character/recipe';
 import { defaultLayout, type IslandLayout } from '../src/scene/layout';
 import { GOLDEN, GOLDEN_BACKUPS, GOLDEN_ISLANDS } from './fixtures';
-import { GOLDEN_STUDIO } from './recipes';
+import { ADDED_SINCE_STUDIO_V1, GOLDEN_STUDIO } from './recipes';
 import { newStudio } from '../src/studio/state';
 
 const withoutIds = (l: IslandLayout) => ({ ...l, items: l.items.map(({ id: _, ...rest }) => rest) });
@@ -20,7 +20,7 @@ describe('old backups keep working', () => {
       // Version 1 backups have no Studio; version 2 ones carry it exactly.
       if ('studio' in g) {
         const { v: _, ...studio } = GOLDEN_STUDIO;
-        expect(backup.studio).toEqual({ ...studio, bowl: null, discovered: [] }); // fields added since start empty
+        expect(backup.studio).toEqual({ ...studio, ...ADDED_SINCE_STUDIO_V1 });
       } else expect(backup.studio).toBeNull();
     });
   }

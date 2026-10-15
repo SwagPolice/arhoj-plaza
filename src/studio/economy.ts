@@ -9,6 +9,7 @@ import { placeNew } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
+import { STEPS, stepOf, stepVisit } from './merchant';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -42,8 +43,13 @@ export const bowlOf = (s: StudioState) => s.island.items.find((d) => d.kind === 
 /** The colour a character's top glaze is (what it drops as paint), or null when it's bare clay. */
 export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null;
 
-/** Let `seconds` pass: everyone and every well makes what it would have made in that time. */
-export function advance(s: StudioState, seconds: number): { state: StudioState; yields: Yield[]; mixed: Mixed | null } {
+/**
+ * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
+ * merchant comes and goes. `live` is false for time away: the merchant's stay only runs while you're playing.
+ */
+export function advance(
+  s: StudioState, seconds: number, live = true,
+): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
@@ -85,7 +91,8 @@ export function advance(s: StudioState, seconds: number): { state: StudioState; 
     mixed = { a: bowl.a, b: bowl.b, made };
     bowl = null;
   }
-  return { state: { ...s, progress, wellTints, bowl, discovered, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed };
+  const { merchant, visit } = stepVisit(s.merchant, !!bowlOf(s), STEPS[stepOf(s)].stay, dt, live, rand);
+  return { state: { ...s, progress, wellTints, bowl, discovered, merchant, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit };
 }
 
 export function addTo(p: Purse, what: string, amount: number): Purse {
@@ -102,7 +109,7 @@ const isEmpty = (p: Purse) => p.clay === 0 && Object.values(p.paint).every((n) =
 export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number } {
   const seconds = Math.min(AWAY_CAP, Math.max(0, (now - s.lastSeen) / 1000));
   if (seconds < AWAY_MIN) return { state: { ...s, lastSeen: now }, seconds: 0 };
-  const { state, yields } = advance(s, seconds);
+  const { state, yields } = advance(s, seconds, false);
   let away: Purse = s.away ? { clay: s.away.clay, paint: { ...s.away.paint } } : emptyPurse();
   for (const y of yields) away = addTo(away, y.what, y.amount);
   const total = (s.away?.seconds ?? 0) + seconds;
@@ -221,6 +228,7 @@ export function nextGoal(s: StudioState): string {
   if (!bowlOf(s)) {
     return s.purse.clay >= BOWL_COST ? 'Next: build the mixing bowl!' : `Next: Mixing bowl, ${more(BOWL_COST - s.purse.clay)}`;
   }
+  if (s.merchant.here) return 'The merchant is here: tap him';
   if (s.bowl) return 'The bowl is stirring…';
   if (!s.discovered.length) return paints >= 2 ? 'Next: tap the bowl and mix two paints' : 'Next: collect two paints to mix';
   const found = MIXABLE.filter((c) => s.discovered.includes(c)).length;

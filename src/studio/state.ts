@@ -18,6 +18,14 @@ export type Purse = { clay: number; paint: Record<string, number> };
 /** Something lying on the ground, waiting to be tapped: `what` is 'clay' or a paint colour. */
 export type Drop = { id: string; x: number; z: number; what: string; amount: number };
 
+/** Traits a Studio character can gain on top of its personality (kept here, not in the recipe, so share codes stay the same). */
+export const TRAITS = ['tidy'] as const;
+export type Trait = (typeof TRAITS)[number];
+
+/** The balloon merchant: whether he's here, seconds until he comes or of play left before he goes, and clay paid to him so far. */
+export type Merchant = { here: boolean; wait: number; stay: number; paid: number; visits: number };
+export const FIRST_VISIT = 20; // seconds after the mixing bowl is built
+
 /** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
 export type Mix = { a: string; b: string; left: number };
 
@@ -34,12 +42,15 @@ export type StudioState = {
   wellTints: Record<string, string>; // each well's water: the last colour it made
   bowl: Mix | null; // what the mixing bowl is stirring, if anything (added after v1 shipped: missing = null)
   discovered: string[]; // colours made in the bowl so far (added after v1 shipped: missing = [])
+  merchant: Merchant; // (added after v1 shipped: missing = not met yet)
+  traits: Record<string, Trait[]>; // by character id (added after v1 shipped: missing = none)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
 };
 
 export const emptyPurse = (): Purse => ({ clay: 0, paint: {} });
+const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0 });
 
 /** A bare clay ghost: no glaze yet, everything else picked at random (or by you). */
 export function bareGhost(over: Partial<CharacterRecipe> = {}): CharacterRecipe {
@@ -60,6 +71,8 @@ export function newStudio(now = Date.now()): StudioState {
     wellTints: {},
     bowl: null,
     discovered: [],
+    merchant: newMerchant(),
+    traits: {},
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -121,6 +134,21 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
       ? { a: o.bowl.a.toLowerCase(), b: o.bowl.b.toLowerCase(), left: count(o.bowl.left) }
       : null;
   const discovered = Array.isArray(o.discovered) ? [...new Set(o.discovered.filter((c): c is string => typeof c === 'string' && isHex(c)).map((c) => c.toLowerCase()))] : [];
+  const m = isObj(o.merchant) ? o.merchant : {};
+  const merchant: Merchant = {
+    here: m.here === true,
+    wait: count(m.wait, FIRST_VISIT),
+    stay: count(m.stay),
+    paid: whole(m.paid, 0),
+    visits: whole(m.visits, 0),
+  };
+  const ids = new Set(characters.map((c) => c.id));
+  const traits: Record<string, Trait[]> = {};
+  if (isObj(o.traits))
+    for (const [id, list] of Object.entries(o.traits)) {
+      const known = Array.isArray(list) ? [...new Set(list.filter((t): t is Trait => TRAITS.includes(t as Trait)))] : [];
+      if (ids.has(id) && known.length) traits[id] = known;
+    }
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
@@ -136,6 +164,8 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     wellTints,
     bowl,
     discovered,
+    merchant,
+    traits,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

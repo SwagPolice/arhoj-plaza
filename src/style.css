@@ -182,6 +182,7 @@ body {
 }
 
 .plaza-toast { bottom: 80px; }
+.layer:has(.studio-bar) .plaza-toast { bottom: 100px; } /* above the Studio's build bar */
 
 .tabs .tab-icon { padding: 8px 12px; font-size: 16px; }
 .backup-heading { margin: 16px 0 6px; font-size: 15px; }
@@ -253,6 +254,14 @@ body {
 .studio-bar .price::before { content: ' · '; }
 .studio-card { max-width: 300px; }
 .card-line { margin: 8px 0 6px; font-size: 14px; }
+.shop { display: flex; flex-direction: column; gap: 10px; }
+.shop-row { display: flex; align-items: center; gap: 10px; }
+.shop-text { flex: 1; min-width: 0; }
+.shop-name { font-weight: 600; }
+.shop-blurb { font-size: 13px; line-height: 1.3; }
+.shop-price { white-space: nowrap; font-size: 14px; display: flex; align-items: center; gap: 3px; }
+.shop-trip { margin: 6px 0 0; font-size: 14px; }
+.card-trait { font-size: 14px; margin-top: 4px; }
 .mix-slots { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 8px; }
 .mix-slot {
   width: 54px; height: 54px; border-radius: 50%; border: 2px dashed #cbbfae; background: #faf6ef; cursor: pointer; padding: 0;

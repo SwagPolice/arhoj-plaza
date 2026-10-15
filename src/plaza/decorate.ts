@@ -23,6 +23,15 @@ export type DecorateHost = {
   done(): void;
 };
 
+/** Which tools to offer. Creative has everything; the Studio only arranges what it bought. */
+export type DecorateOptions = {
+  /** The island size slider, the add buttons, removing, and share / import / reset. */
+  full: boolean;
+  /** The heading tip under the size row. */
+  tip: string;
+};
+const CREATIVE: DecorateOptions = { full: true, tip: 'Drag things to move them · tap one to turn, resize or remove it' };
+
 type Drag = {
   id: string;
   obj: THREE.Object3D;
@@ -41,8 +50,10 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'pond', label: '💧 Pond' },
   { kind: 'rock', label: '🪨 Rock' },
   { kind: 'mushroom', label: '🍄 Mushroom' },
+  { kind: 'shell', label: '🐚 Shell' },
+  { kind: 'seaglass', label: '💎 Sea glass' },
 ];
-const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl' };
+const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass' };
 type Look = 'selected' | 'invalid' | null;
 const RED = new THREE.Color('#e0452f');
 const GLOW = new THREE.Color('#5c4620');
@@ -76,7 +87,7 @@ export class Decorator {
   private hintTimer = 0;
   private v = new THREE.Vector3();
 
-  constructor(private host: DecorateHost) {
+  constructor(private host: DecorateHost, options: DecorateOptions = CREATIVE) {
     this.size.type = 'range';
     this.size.min = String(ISLAND_SIZE.min);
     this.size.max = String(ISLAND_SIZE.max);
@@ -120,10 +131,12 @@ export class Decorator {
       ...this.turnButtons,
       el('span', 'decor-tools-label', 'Size'),
       this.toolSize,
-      tool('✕', 'Remove', () => this.removeSelected()),
+      ...(options.full ? [tool('✕', 'Remove', () => this.removeSelected())] : []),
     );
 
-    this.bar.append(sizeRow, el('div', 'muted decor-tip', 'Drag things to move them · tap one to turn, resize or remove it'), addRow, this.hint, endRow);
+    if (!options.full) endRow.replaceChildren(el('span', 'decor-spacer'), button('Done', 'btn primary', () => this.host.done()));
+    const tip = el('div', 'muted decor-tip', options.tip);
+    this.bar.append(...(options.full ? [sizeRow, tip, addRow] : [tip]), this.hint, endRow);
     this.bar.style.display = this.tools.style.display = 'none';
     host.ui.append(this.bar, this.tools);
 

@@ -53,11 +53,11 @@ export function latheFrom(pts: Pt[], segments = 64) {
 const maxY = (pts: THREE.Vector2[]) => Math.max(...pts.map((p) => p.y));
 const maxR = (pts: THREE.Vector2[]) => Math.max(...pts.map((p) => p.x));
 
-type Surface = { pts: THREE.Vector2[]; sx: number; sy: number };
+export type Surface = { pts: THREE.Vector2[]; sx: number; sy: number };
 const FORWARD = new THREE.Vector3(0, 0, 1);
 
 /** Point and outward normal on the outside of a lathe shape, at profile height `py` and angle (0 = front). */
-function surfacePoint(s: Surface, py: number, angle: number, lift = 0) {
+export function surfacePoint(s: Surface, py: number, angle: number, lift = 0) {
   let best: { r: number; dr: number; dy: number } | null = null;
   for (let i = 0; i < s.pts.length - 1; i++) {
     const a = s.pts[i];
@@ -84,7 +84,7 @@ function surfacePoint(s: Surface, py: number, angle: number, lift = 0) {
 }
 
 /** Place an object on the surface, facing outward. */
-function stick(obj: THREE.Object3D, s: Surface, py: number, angle: number, lift = 0) {
+export function stick(obj: THREE.Object3D, s: Surface, py: number, angle: number, lift = 0) {
   const { pos, normal } = surfacePoint(s, py, angle, lift);
   obj.position.copy(pos);
   obj.quaternion.setFromUnitVectors(FORWARD, normal);

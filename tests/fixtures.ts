@@ -1,4 +1,4 @@
-import { DRIPPY, GOLDEN_BACKUP, GOLDEN_ISLAND, NISSE, SHROOM, type Golden } from './recipes';
+import { DRIPPY, GOLDEN_BACKUP, GOLDEN_ISLAND, GOLDEN_ISLAND_SHORE, NISSE, SHROOM, type Golden } from './recipes';
 
 /*
  * Golden share codes: real codes made by past versions of the game, with the character each must open as.
@@ -14,6 +14,7 @@ export const GOLDEN: { made: string; code: string; expected: Golden }[] = [
 /** Golden island codes, same rules: never edit or delete; add one when islands gain a feature. */
 export const GOLDEN_ISLANDS = [
   { made: '2026-10-14, layout v1', code: 'arhojisle1.fc5BCoMwFIThu8w6PpIYrc1VShelBhpEUxKVonj3EkNsF6W72XzMv2KGFgz-1topQDdUM9jR9AH6sqKzQwuNpxtaMLygC0kVwwItqGEIdjFx1gzejdB8Y4cZvTHJKBI7KSTJj1HyLypUPIiqpHNWnE7VD-XdvUtKULkjFZOyqXOeIF59sX4KD-9cnygnlf5EzM2V5XF33d4', expected: GOLDEN_ISLAND },
+  { made: '2026-10-15, layout v1 (shells, sea glass)', code: 'arhojisle1.Tc1bCoMwEEbhvfzPcUjSC3a2UvogGGqoaSCjUhT3XtB4eT3wcSYMYKOQqtr3Ar7TTcF3Lgj4OeHjvzUY0ri2hcIPbMgqjGBLRkH86HJKsQNrKmd1KFe920pkhYWmR5bXTS5pkZbMSXbJuawuiynsMTPb7ARCL02KMaxIU1aayt3t6jX_AQ', expected: GOLDEN_ISLAND_SHORE },
 ];
 
 /** Golden backup codes, same rules. */

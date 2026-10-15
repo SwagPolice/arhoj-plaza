@@ -5,6 +5,7 @@ import { Editor } from './editor/editor';
 import { Plaza } from './plaza/plaza';
 import { Studio } from './studio/studio';
 import { DebugGrid } from './debug/grid';
+import { DebugMerchant } from './debug/merchant';
 import { defaultRecipe } from './character/recipe';
 import { loadAll, loadMode, saveMode, type GameMode } from './storage';
 import { decodeCharacter, decodeIsland, ShareError } from './share';
@@ -25,8 +26,9 @@ const env = createEnvironment(renderer);
 let current: Mode;
 const modes: Mode[] = [];
 
-if (new URLSearchParams(location.search).get('debug') === 'grid') {
-  current = new DebugGrid(renderer, env);
+const debug = new URLSearchParams(location.search).get('debug');
+if (debug === 'grid' || debug === 'merchant') {
+  current = debug === 'grid' ? new DebugGrid(renderer, env) : new DebugMerchant(renderer, env);
   modes.push(current);
 } else {
   const editor = new Editor(renderer, env, ui);
