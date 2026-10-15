@@ -88,6 +88,13 @@ export class Studio extends IslandView {
     this.addUI(this.hud, this.card, this.bar);
 
     // Only while you're in the Studio: time spent elsewhere (or in Creative) counts as time away.
+    // With a mouse, passing over a drop collects it (even while turning the camera).
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      if (!this.active || e.pointerType !== 'mouse' || this.decorator.active) return;
+      this.aim(e);
+      const id = this.dropUnderPointer();
+      if (id) this.collectDrop(id);
+    });
     window.addEventListener('pagehide', () => this.active && this.persist());
     document.addEventListener('visibilitychange', () => {
       if (!this.active) return;
@@ -172,12 +179,13 @@ export class Studio extends IslandView {
 
   protected onTap(e: PointerEvent) {
     if (this.decorator.active) return; // taps belong to the decorations
-    // Drops first: they're small and usually what you meant to tap.
     this.aim(e);
-    const hit = this.raycaster.intersectObjects(this.drops.children, true)[0];
-    let obj: THREE.Object3D | null = hit?.object ?? null;
-    while (obj && !obj.userData.dropId) obj = obj.parent;
-    if (obj) return this.collectDrop(obj.userData.dropId);
+    // With a mouse, drops are collected by hovering (see the constructor), so clicks go to what's behind them.
+    // Touch screens can't hover: there a tap on a drop collects it, first, since drops are small.
+    if (e.pointerType !== 'mouse') {
+      const id = this.dropUnderPointer();
+      if (id) return this.collectDrop(id);
+    }
     const bowl = bowlOf(this.state);
     const bowlObj = bowl && this.island.decor.get(bowl.id);
     if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
@@ -232,6 +240,14 @@ export class Studio extends IslandView {
   }
 
   // ---------- drops ----------
+
+  /** The drop the raycaster points at (call `aim` first), if any. */
+  private dropUnderPointer(): string | null {
+    const hit = this.raycaster.intersectObjects(this.drops.children, true)[0];
+    let obj: THREE.Object3D | null = hit?.object ?? null;
+    while (obj && !obj.userData.dropId) obj = obj.parent;
+    return obj?.userData.dropId ?? null;
+  }
 
   /** Fresh yields land near whoever made them; anything past the limit is held for later. */
   private place(yields: Yield[]) {

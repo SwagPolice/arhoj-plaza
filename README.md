@@ -7,7 +7,7 @@ A tiny Mii-Plaza-style toy: make little ceramic characters (inspired by Studio A
 Two ways to play, chosen on the start screen (⇄ switches any time):
 
 - **Creative**: everything unlocked. Make characters, decorate the island freely.
-- **Studio** (v0.1): start with one bare clay ghost on a tiny island. Tap the clay it drops, make more ghosts,
+- **Studio** (v0.1): start with one bare clay ghost on a tiny island. Collect the clay it drops (hover over it with a mouse, or tap it), make more ghosts,
   build a glaze well for paint, and dip your ghosts. A mixing bowl turns two paints into a new colour (7 to discover).
   Then a balloon merchant starts visiting with decorations and a broom (it makes a character Tidy: they pick up drops).
   The studio keeps working while you're away (up to 8 hours).

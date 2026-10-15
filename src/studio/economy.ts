@@ -143,7 +143,7 @@ export function dropOnGround(
   return { state: { ...s, ground, held }, dropped };
 }
 
-/** Tap a drop: it goes into your purse. If anything was held back, one held thing comes out to replace it. */
+/** Collect a drop: it goes into your purse. If anything was held back, one held thing comes out to replace it. */
 export function collect(s: StudioState, dropId: string): { state: StudioState; got: Drop | null; release: Yield | null } {
   const got = s.ground.find((d) => d.id === dropId) ?? null;
   if (!got) return { state: s, got: null, release: null };

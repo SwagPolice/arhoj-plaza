@@ -15,7 +15,7 @@ export const PRIMARIES = { red: '#d8382f', yellow: '#f2c230', cobalt: '#2f55b5' 
 
 /** What you own (or what's waiting for you): clay, plus paint by colour. */
 export type Purse = { clay: number; paint: Record<string, number> };
-/** Something lying on the ground, waiting to be tapped: `what` is 'clay' or a paint colour. */
+/** Something lying on the ground, waiting to be collected (hovered over, or tapped on touch screens): `what` is 'clay' or a paint colour. */
 export type Drop = { id: string; x: number; z: number; what: string; amount: number };
 
 /** Traits a Studio character can gain on top of its personality (kept here, not in the recipe, so share codes stay the same). */
