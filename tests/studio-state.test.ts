@@ -50,6 +50,17 @@ describe('studio saves', () => {
     expect(messy.harbour).toEqual({ level: 0, trip: null, haul: null, trips: {} });
   });
 
+  test('storage survives a reload; harbours, unknown kinds and repeated ids are dropped', () => {
+    const s = { ...newStudio(1000), storage: [{ id: 'tree-a', kind: 'tree' as const, size: 1.2, rot: 0.5 }, { id: 'well-b', kind: 'well' as const, size: 1, rot: 0 }] };
+    expect(normaliseStudio(JSON.parse(JSON.stringify(studioData(s))))).toEqual(s);
+    const messy = normaliseStudio({
+      ...studioData(s),
+      island: { radius: 5, items: [{ id: 'rock-c', kind: 'rock', x: 0, z: 0, size: 0.4, rot: 0 }] },
+      storage: [...s.storage, { id: 'tree-a', kind: 'tree', size: 1, rot: 0 }, { id: 'rock-c', kind: 'rock', size: 1, rot: 0 }, { id: 'h', kind: 'harbour', size: 1, rot: 0 }, { id: 'x', kind: 'castle' }, 'junk'],
+    }, 5);
+    expect(messy.storage.map((d) => d.id)).toEqual(['tree-a', 'well-b']);
+  });
+
   test('nothing, rubbish or an empty save gives a fresh studio, always with a ghost', () => {
     expect(normaliseStudio(null, 5).characters).toHaveLength(1);
     expect(normaliseStudio('hello', 5).lastSeen).toBe(5);

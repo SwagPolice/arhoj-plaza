@@ -5,7 +5,7 @@
  * tests/studio-state.test.ts keeps a frozen save loading.
  */
 import { defaultRecipe, EYES, normaliseRecipe, PERSONALITIES, randomName, type CharacterRecipe } from '../character/recipe';
-import { normaliseLayout, type IslandLayout } from '../scene/layout';
+import { DECOR_KINDS, normaliseLayout, type DecorKind, type IslandLayout } from '../scene/layout';
 import { pick } from '../util/random';
 
 export const STUDIO_VERSION = 1;
@@ -45,6 +45,9 @@ export type Harbour = {
 };
 export const newHarbour = (): Harbour => ({ level: 0, trip: null, haul: null, trips: {} });
 
+/** A decoration (or a well or the bowl) put away: off the island, keeping its id, size and turn. */
+export type Stored = { id: string; kind: DecorKind; size: number; rot: number };
+
 /** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
 export type Mix = { a: string; b: string; left: number };
 
@@ -64,6 +67,7 @@ export type StudioState = {
   merchant: Merchant; // (added after v1 shipped: missing = not met yet)
   traits: Record<string, Trait[]>; // by character id (added after v1 shipped: missing = none)
   harbour: Harbour; // (added after v1 shipped: missing = a harbour-to-be, nothing at sea)
+  storage: Stored[]; // things put away, in the order they went in (added after v1 shipped: missing = empty)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -94,6 +98,7 @@ export function newStudio(now = Date.now()): StudioState {
     merchant: newMerchant(),
     traits: {},
     harbour: newHarbour(),
+    storage: [],
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -190,11 +195,21 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     haul: isObj(h.haul) && typeof h.haul.to === 'string' && finds.length ? { to: h.haul.to, finds } : null,
     trips,
   };
+  const island = isObj(o.island) ? normaliseLayout(o.island) : fresh.island;
+  const taken = new Set(island.items.map((d) => d.id));
+  const storage: Stored[] = [];
+  for (const d of Array.isArray(o.storage) ? o.storage : []) {
+    if (!isObj(d) || typeof d.id !== 'string' || taken.has(d.id)) continue;
+    const kind = d.kind as DecorKind;
+    if (!(DECOR_KINDS as readonly string[]).includes(kind) || kind === 'harbour') continue; // the harbour stays on its edge
+    taken.add(d.id);
+    storage.push({ id: d.id, kind, size: count(d.size, 1) || 1, rot: count(d.rot) });
+  }
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
     characters: characters.length ? characters : fresh.characters, // a studio always has someone in it
-    island: isObj(o.island) ? normaliseLayout(o.island) : fresh.island,
+    island,
     purse: normalisePurse(o.purse),
     ghostsMade: whole(o.ghostsMade, characters.length || 1, 1),
     wellsBuilt: whole(o.wellsBuilt, 0),
@@ -208,6 +223,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     merchant,
     traits,
     harbour,
+    storage,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

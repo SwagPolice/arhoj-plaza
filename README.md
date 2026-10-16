@@ -11,6 +11,7 @@ Two ways to play, chosen on the start screen (⇄ switches any time):
   build a glaze well for paint, and dip your ghosts. A mixing bowl turns two paints into a new colour (7 to discover).
   Then a balloon merchant starts visiting with decorations and a broom (it makes a character Tidy: they pick up drops),
   and a harbour sends crews on expeditions (30 min to 2 h) that come back with finds, including driftwood and coral.
+  Decorations you buy or find go into storage first; Arrange puts them out (and away again, wells and the bowl too).
   The pace is calm: at most 30 drops lie around, and while you're away (up to 8 hours) the studio works at a third
   of its speed and only Tidy characters collect; the rest waits on the island for you.
 
@@ -78,7 +79,7 @@ When you add a feature, add a code that uses it there. `npm run build` runs the 
 | `src/share.ts` | Share codes and links (characters and islands) |
 | `src/backup.ts` | Backups: everything in one file or code |
 | `src/scene/island-view.ts` | What the Creative plaza and the Studio share: island, camera, characters |
-| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), mixing recipes (`mixing.ts`), merchant (`merchant.ts`, `merchant-model.ts`, `merchant-view.ts`), harbour (`harbour.ts`, `harbour-view.ts`), screen (`studio.ts`) |
+| `src/studio/` | Studio Mode: save (`state.ts`), rules (`economy.ts`), mixing recipes (`mixing.ts`), merchant (`merchant.ts`, `merchant-model.ts`, `merchant-view.ts`), harbour (`harbour.ts`, `harbour-view.ts`), storage (`storage.ts`), screen (`studio.ts`) |
 | `tests/` | Checks that old share codes and saves still load |
 
 ## Publishing

@@ -108,21 +108,22 @@ describe('his basket', () => {
 });
 
 describe('his shop', () => {
-  test('buying a decoration takes clay, places it on the island, and counts towards his trip', () => {
+  test('buying a decoration takes clay, puts it in storage, and counts towards his trip', () => {
     const s = visited();
     const r = buyItem(s, 'tree');
     if (!('state' in r)) throw new Error(r.why);
     expect(r.state.purse.clay).toBe(500 - 15);
-    expect(r.state.island.items.find((d) => d.id === r.placed)?.kind).toBe('tree');
+    expect(r.state.storage.map((d) => d.kind)).toEqual(['tree']);
+    expect(r.state.island).toEqual(s.island); // you place it yourself
     expect(r.state.merchant.paid).toBe(15);
   });
 
-  test('nothing is sold when he is away, too dear, not brought, or with no room', () => {
+  test('nothing is sold when he is away, too dear, or not brought; a full island is fine (it goes to storage)', () => {
     expect(buyItem({ ...visited(), merchant: { ...visited().merchant, here: false } }, 'rock')).toEqual({ why: 'away' });
     expect(buyItem(visited(5), 'rock')).toEqual({ why: 'cost' });
     expect(buyItem({ ...visited(), merchant: { ...visited().merchant, offers: [] } }, 'rock')).toEqual({ why: 'stock' });
     const full = { ...visited(), island: { radius: 5, items: Array.from({ length: 40 }, (_, i) => ({ id: `m${i}`, kind: 'mushroom' as const, x: 0, z: 0, size: 1, rot: 0 })) } };
-    expect(buyItem(full, 'rock')).toEqual({ why: 'room' });
+    expect('state' in buyItem(full, 'rock')).toBe(true);
   });
 
   test('rarer things also take paint', () => {

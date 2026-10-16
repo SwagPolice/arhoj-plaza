@@ -272,6 +272,9 @@ body {
 .shop-blurb { font-size: 13px; line-height: 1.3; }
 .shop-price { white-space: nowrap; font-size: 14px; display: flex; align-items: center; gap: 3px; }
 .shop-trip { margin: 6px 0 0; font-size: 14px; }
+.decor-storage { align-items: center; }
+.decor-storage .btn { flex: 0 0 auto; }
+.decor-storage-label { font-weight: 600; font-size: 14px; margin-right: 4px; }
 .chip.off { opacity: 0.45; }
 .harbour-hint { font-size: 14px; margin: 10px 0 4px; }
 .card-trait { font-size: 14px; margin-top: 4px; }

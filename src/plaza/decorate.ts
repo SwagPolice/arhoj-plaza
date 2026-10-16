@@ -23,8 +23,20 @@ export type DecorateHost = {
   done(): void;
 };
 
+/** Somewhere to keep things off the island (Studio Mode). The host changes its own save and commits the layout. */
+export type DecorStorage = {
+  /** What's stored, by kind. */
+  list(): { kind: DecorKind; count: number }[];
+  /** Bring one of this kind out onto the island: its id, or null if there's no room. */
+  take(kind: DecorKind): string | null;
+  /** Put this one away; false if it can't go right now. */
+  put(id: string): boolean;
+};
+
 /** Which tools to offer. Creative has everything; the Studio only arranges what it bought. */
 export type DecorateOptions = {
+  /** With storage: a Storage row to bring things out, and a Put away tool. */
+  storage?: DecorStorage;
   /** The island size slider, the add buttons, removing, and share / import / reset. */
   full: boolean;
   /** The heading tip under the size row. */
@@ -55,6 +67,9 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'driftwood', label: '🪵 Driftwood' },
   { kind: 'coral', label: '🪸 Coral' },
 ];
+const ICONS: Record<DecorKind, string> = {
+  tree: '🌲', pond: '💧', rock: '🪨', mushroom: '🍄', well: '⛲', bowl: '🥣', shell: '🐚', seaglass: '💎', harbour: '⚓', driftwood: '🪵', coral: '🪸',
+};
 const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass', harbour: 'harbour', driftwood: 'driftwood', coral: 'coral',
 };
 type Look = 'selected' | 'invalid' | null;
@@ -74,6 +89,8 @@ export class Decorator {
   private tools = el('div', 'decor-tools');
   private toolSize = el('input');
   private turnButtons: HTMLButtonElement[] = [];
+  private storageRow = el('div', 'decor-row decor-add decor-storage');
+  private storage: DecorStorage | undefined;
   private selected: string | null = null;
   private drag: Drag | null = null;
   /** An object sliding to where it ends up; `then` runs when it gets there. */
@@ -91,6 +108,7 @@ export class Decorator {
   private v = new THREE.Vector3();
 
   constructor(private host: DecorateHost, options: DecorateOptions = CREATIVE) {
+    this.storage = options.storage;
     this.size.type = 'range';
     this.size.min = String(ISLAND_SIZE.min);
     this.size.max = String(ISLAND_SIZE.max);
@@ -135,11 +153,12 @@ export class Decorator {
       el('span', 'decor-tools-label', 'Size'),
       this.toolSize,
       ...(options.full ? [tool('✕', 'Remove', () => this.removeSelected())] : []),
+      ...(options.storage ? [tool('📦', 'Put away', () => this.putAwaySelected())] : []),
     );
 
     if (!options.full) endRow.replaceChildren(el('span', 'decor-spacer'), button('Done', 'btn primary', () => this.host.done()));
     const tip = el('div', 'muted decor-tip', options.tip);
-    this.bar.append(...(options.full ? [sizeRow, tip, addRow] : [tip]), this.hint, endRow);
+    this.bar.append(...(options.full ? [sizeRow, tip, addRow] : [tip]), ...(options.storage ? [this.storageRow] : []), this.hint, endRow);
     this.bar.style.display = this.tools.style.display = 'none';
     host.ui.append(this.bar, this.tools);
 
@@ -157,6 +176,7 @@ export class Decorator {
   enter() {
     this.active = true;
     this.bar.style.display = '';
+    this.drawStorage();
     this.syncSize();
     const { camera, controls } = this.host;
     this.savedView = { pos: camera.position.clone(), target: controls.target.clone() };
@@ -235,6 +255,38 @@ export class Decorator {
     }
     this.host.commit({ ...layout, items: [...layout.items, item] });
     this.select(item.id);
+  }
+
+  /** The Storage row: one button per kind that's stored, with how many. */
+  private drawStorage() {
+    const store = this.storage;
+    if (!store) return;
+    const list = store.list();
+    this.storageRow.replaceChildren(
+      el('span', 'decor-storage-label', 'Storage'),
+      ...(list.length
+        ? list.map(({ kind, count }) =>
+            button(`${ICONS[kind]} ${NAMES[kind][0].toUpperCase()}${NAMES[kind].slice(1)}${count > 1 ? ` ×${count}` : ''}`, 'btn', () => {
+              const id = store.take(kind);
+              if (!id) return this.say(this.host.layout().items.length >= MAX_DECOR ? "That's plenty! Put something away first." : `No room for the ${NAMES[kind]}. Put something away first.`);
+              this.drawStorage();
+              this.select(id);
+            }),
+          )
+        : [el('span', 'muted', 'Empty: things you buy or find wait here.')]),
+    );
+  }
+
+  private putAwaySelected() {
+    if (!this.selected || !this.storage) return;
+    const id = this.selected;
+    const item = this.item(id);
+    this.select(null);
+    if (!this.storage.put(id)) {
+      this.say(item?.kind === 'bowl' ? 'The bowl is stirring: put it away once the mix is done.' : "That can't be put away.");
+      return;
+    }
+    this.drawStorage();
   }
 
   private removeSelected() {

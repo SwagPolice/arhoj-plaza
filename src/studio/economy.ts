@@ -44,6 +44,8 @@ export type Yield = { from: string; what: string; amount: number; back?: boolean
 export type Mixed = { a: string; b: string; made: string | null };
 
 export const bowlOf = (s: StudioState) => s.island.items.find((d) => d.kind === 'bowl') ?? null;
+/** You own a bowl if it's on the island or put away in storage (only one, either way). */
+export const ownsBowl = (s: StudioState) => !!bowlOf(s) || s.storage.some((d) => d.kind === 'bowl');
 
 /** The colour a character's top glaze is (what it drops as paint), or null when it's bare clay. */
 export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null;
@@ -100,7 +102,7 @@ export function advance(
     mixed = { a: bowl.a, b: bowl.b, made };
     bowl = null;
   }
-  const { merchant, visit } = stepVisit(s.merchant, !!bowlOf(s), stepOf(s), dt, rand);
+  const { merchant, visit } = stepVisit(s.merchant, ownsBowl(s), stepOf(s), dt, rand);
   const { state: sailed, home } = stepTrip(s, dt, rand);
   const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits };
   return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home };
@@ -207,7 +209,7 @@ export function buyWell(s: StudioState): StudioState | null {
 }
 
 export function buyBowl(s: StudioState): StudioState | null {
-  if (bowlOf(s) || s.purse.clay < BOWL_COST) return null; // one bowl is enough
+  if (ownsBowl(s) || s.purse.clay < BOWL_COST) return null; // one bowl is enough
   const bowl = placeNew(s.island, 'bowl');
   if (!bowl) return null;
   return { ...s, purse: { ...s.purse, clay: s.purse.clay - BOWL_COST }, island: { ...s.island, items: [...s.island.items, bowl] } };
@@ -248,7 +250,7 @@ export function nextGoal(s: StudioState): string {
   const anyDipped = s.characters.some((c) => c.layers.length);
   if (bare && paints && !anyDipped) return 'Next: tap a ghost and dip it in paint';
   if (!anyDipped) return 'Next: collect a paint drop from the well';
-  if (!bowlOf(s)) {
+  if (!ownsBowl(s)) {
     return s.purse.clay >= BOWL_COST ? 'Next: build the mixing bowl!' : `Next: Mixing bowl, ${more(BOWL_COST - s.purse.clay)}`;
   }
   if (s.merchant.here) return 'The merchant is here: tap him';

@@ -5,7 +5,8 @@
  * All numbers are first guesses; tests/studio-harbour.test.ts checks them.
  */
 import { GLAZES } from '../character/palette';
-import { DECOR_KINDS, placeAtEdge, placeNew, type DecorKind } from '../scene/layout';
+import { DECOR_KINDS, placeAtEdge, type DecorKind } from '../scene/layout';
+import { store } from './storage';
 import { giveTrait, hasTrait, stepOf } from './merchant';
 import { PRIMARIES, type Find, type Harbour, type StudioState } from './state';
 
@@ -131,28 +132,17 @@ export function stepTrip(s: StudioState, dt: number, rand: () => number): { stat
 const isPaint = (what: string) => what.startsWith('#');
 const isDecor = (what: string): what is DecorKind => (DECOR_KINDS as readonly string[]).includes(what);
 
-/** Empty the crate: clay and paint into your purse, decorations onto the island; whatever doesn't fit stays. */
-export function collectHaul(s: StudioState): { state: StudioState; kept: Find[]; placed: string[] } {
+/** Empty the crate: clay and paint into your purse, decorations into storage (place them with Arrange). */
+export function collectHaul(s: StudioState): { state: StudioState; stored: number } {
   const haul = s.harbour.haul;
-  if (!haul) return { state: s, kept: [], placed: [] };
-  let purse = s.purse;
-  let island = s.island;
-  const kept: Find[] = [];
-  const placed: string[] = [];
+  if (!haul) return { state: s, stored: 0 };
+  let next: StudioState = { ...s, harbour: { ...s.harbour, haul: null } };
+  let stored = 0;
   for (const f of haul.finds) {
-    if (f.what === 'clay') purse = { ...purse, clay: purse.clay + f.amount };
-    else if (isPaint(f.what)) purse = { ...purse, paint: { ...purse.paint, [f.what]: (purse.paint[f.what] ?? 0) + f.amount } };
-    else if (isDecor(f.what)) {
-      let left = f.amount;
-      while (left > 0) {
-        const item = placeNew(island, f.what);
-        if (!item) break;
-        island = { ...island, items: [...island.items, item] };
-        placed.push(item.id);
-        left--;
-      }
-      if (left) kept.push({ ...f, amount: left });
-    }
+    const purse = next.purse;
+    if (f.what === 'clay') next = { ...next, purse: { ...purse, clay: purse.clay + f.amount } };
+    else if (isPaint(f.what)) next = { ...next, purse: { ...purse, paint: { ...purse.paint, [f.what]: (purse.paint[f.what] ?? 0) + f.amount } } };
+    else if (isDecor(f.what)) for (let i = 0; i < f.amount; i++, stored++) next = store(next, f.what);
   }
-  return { state: { ...s, purse, island, harbour: { ...s.harbour, haul: kept.length ? { ...haul, finds: kept } : null } }, kept, placed };
+  return { state: next, stored };
 }

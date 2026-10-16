@@ -11,13 +11,14 @@ import { openDialog, row } from '../ui/share-dialogs';
 import type { Agent } from '../plaza/behaviour';
 import { Decorator } from '../plaza/decorate';
 import {
-  addTo, advance, BOWL_COST, bowlOf, buyBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
+  addTo, advance, BOWL_COST, bowlOf, buyBowl, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
   nextGoal, startMix, wellCost, type Mixed, type Yield,
 } from './economy';
 import { colourName, mixResult, recipeFor } from './mixing';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
 import { buyItem, canAfford, giveClay, hasTrait, nextStep, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
 import { MerchantBalloon } from './merchant-view';
+import { putAway, stored, takeOut } from './storage';
 import {
   atSea, BIG_BOAT_COST, buyBigBoat, buyHarbour, collectHaul, crewLimit, destination, DESTINATIONS, findsFor, HARBOUR_COST, harbourOf,
   harbourUnlocked, isOpen, setSail,
@@ -95,7 +96,29 @@ export class Studio extends IslandView {
         commit: (layout) => this.applyLayout(layout),
         done: () => this.setArranging(false),
       },
-      { full: false, tip: 'Drag things to move them · tap one to turn or resize it' },
+      {
+        full: false,
+        tip: 'Drag things to move them · tap one to turn, resize or put it away',
+        storage: {
+          list: () => stored(this.state),
+          take: (kind) => {
+            const r = takeOut(this.state, kind);
+            if (!r) return null;
+            this.state = { ...this.state, storage: r.state.storage };
+            this.applyLayout(r.state.island); // saves the island, and the storage with it
+            this.render();
+            return r.item.id;
+          },
+          put: (id) => {
+            const next = putAway(this.state, id);
+            if (!next) return false;
+            this.state = { ...this.state, storage: next.storage };
+            this.applyLayout(next.island);
+            this.render();
+            return true;
+          },
+        },
+      },
     );
     this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.arrangeBtn);
     this.card.style.display = 'none';
@@ -647,15 +670,10 @@ export class Studio extends IslandView {
     if (item.trait) return this.chooseOwner(item, redraw);
     const r = buyItem(this.state, item.id);
     if (!('state' in r)) {
-      return this.toast(r.why === 'room' ? 'No room on your island for that yet.' : r.why === 'soldout' ? "He's sold out of that." : "You can't buy that right now.");
+      return this.toast(r.why === 'soldout' ? "He's sold out of that." : "You can't buy that right now.");
     }
     this.paid(r.state);
-    this.applyLayout(r.state.island);
-    this.returnToIsland();
-    const placed = r.placed ? this.state.island.items.find((d) => d.id === r.placed) : null;
-    const agent = this.nearestTo(placed ?? null);
-    if (agent) this.say(agent, '🎉', 0.2);
-    this.toast(`${item.name} placed on your island. Arrange moves it.`);
+    this.toast(`${item.name} added to your storage. Place it with Arrange.`);
     redraw();
   }
 
@@ -830,11 +848,7 @@ export class Studio extends IslandView {
         button('Collect', 'btn primary', () => {
           const r = collectHaul(this.state);
           this.state = r.state;
-          if (r.placed.length) {
-            this.applyLayout(r.state.island);
-            this.returnToIsland();
-          }
-          this.toast(r.kept.length ? `No room for ${r.kept.map(describeFind).join(', ')} yet: it waits at the harbour.` : 'All collected!');
+          this.toast(r.stored ? 'All collected! The decorations are in your storage: place them with Arrange.' : 'All collected!');
           this.persist();
           this.render();
           dialog.close();
@@ -1005,9 +1019,10 @@ export class Studio extends IslandView {
     this.wellBtn.classList.toggle('off', s.purse.clay < wc);
     // The bowl joins the bar once there's paint to mix, and leaves it once built (there's only one).
     priced(this.bowlBtn, 'Mixing bowl', BOWL_COST);
-    this.bowlBtn.style.display = s.wellsBuilt && !bowlOf(s) ? '' : 'none';
+    this.bowlBtn.style.display = s.wellsBuilt && !ownsBowl(s) ? '' : 'none';
     this.bowlBtn.classList.toggle('off', s.purse.clay < BOWL_COST);
-    this.arrangeBtn.style.display = s.island.items.length ? '' : 'none';
+    this.arrangeBtn.style.display = s.island.items.length || s.storage.length ? '' : 'none';
+    this.arrangeBtn.textContent = s.storage.length ? `Arrange · ${s.storage.length} stored` : 'Arrange';
     priced(this.harbourBtn, 'Harbour', HARBOUR_COST);
     this.harbourBtn.style.display = harbourUnlocked(s) && !harbourOf(s) ? '' : 'none';
     this.harbourBtn.classList.toggle('off', s.purse.clay < HARBOUR_COST);

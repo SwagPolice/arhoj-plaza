@@ -157,20 +157,21 @@ describe('the haul', () => {
     expect(DESTINATIONS).toHaveLength(2);
   });
 
-  test('collecting: clay and paint into the purse, decorations onto the island, what does not fit waits', () => {
+  test('collecting: clay and paint into the purse, decorations into storage, even on a full island', () => {
     const s = withHarbour();
     const red = '#d8382f';
     const withHaul = { ...s, harbour: { ...s.harbour, haul: { to: 'shallows', finds: [{ who: 'c0', what: 'clay', amount: 5 }, { who: 'c0', what: red, amount: 2 }, { who: 'c1', what: 'driftwood', amount: 1 }] } } };
     const r = collectHaul(withHaul);
     expect(r.state.purse.clay).toBe(5);
     expect(r.state.purse.paint[red]).toBe(2);
-    expect(r.state.island.items.some((d) => d.kind === 'driftwood')).toBe(true);
+    expect(r.state.storage.map((d) => d.kind)).toEqual(['driftwood']);
+    expect(r.stored).toBe(1);
+    expect(r.state.island).toEqual(withHaul.island);
     expect(r.state.harbour.haul).toBeNull();
     const full = { ...withHaul, island: { ...withHaul.island, items: [...withHaul.island.items, ...Array.from({ length: 39 }, (_, i) => ({ id: `m${i}`, kind: 'mushroom' as const, x: 0, z: 0, size: 1, rot: 0 }))] } };
     const crowded = collectHaul(full);
-    expect(crowded.kept).toEqual([{ who: 'c1', what: 'driftwood', amount: 1 }]);
-    expect(crowded.state.harbour.haul!.finds).toEqual(crowded.kept);
-    expect(crowded.state.purse.clay).toBe(5);
+    expect(crowded.state.storage).toHaveLength(1);
+    expect(crowded.state.harbour.haul).toBeNull();
   });
 
   test('you collect the last haul before sailing again', () => {

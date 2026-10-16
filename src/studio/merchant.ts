@@ -4,7 +4,8 @@
  * so catching him is a little special.
  * All prices and times are first guesses; tests/studio-merchant.test.ts checks them.
  */
-import { placeNew, type DecorKind } from '../scene/layout';
+import type { DecorKind } from '../scene/layout';
+import { store } from './storage';
 import { PRIMARIES, type Merchant, type Offer, type StudioState, type Trait } from './state';
 
 /**
@@ -95,9 +96,9 @@ const pay = (s: StudioState, clay: number): StudioState => ({
   merchant: { ...s.merchant, paid: s.merchant.paid + clay },
 });
 
-export type Bought = { state: StudioState; placed?: string } | { why: 'away' | 'stock' | 'soldout' | 'cost' | 'room' | 'who' };
+export type Bought = { state: StudioState } | { why: 'away' | 'stock' | 'soldout' | 'cost' | 'who' };
 
-/** Buy something from him. A decoration is placed at once; a trait item goes to `characterId`. */
+/** Buy something from him. A decoration goes into storage (place it with Arrange); a trait item goes to `characterId`. */
 export function buyItem(s: StudioState, id: string, characterId?: string): Bought {
   const item = ITEMS.find((i) => i.id === id);
   if (!s.merchant.here) return { why: 'away' };
@@ -112,11 +113,7 @@ export function buyItem(s: StudioState, id: string, characterId?: string): Bough
     const { colour, n } = item.paint;
     next = { ...next, purse: { ...next.purse, paint: { ...next.purse.paint, [colour]: next.purse.paint[colour] - n } } };
   }
-  if (item.decor) {
-    const placed = placeNew(s.island, item.decor);
-    if (!placed) return { why: 'room' };
-    return { state: { ...next, island: { ...next.island, items: [...next.island.items, placed] } }, placed: placed.id };
-  }
+  if (item.decor) return { state: store(next, item.decor) };
   if (item.trait) {
     const given = giveTrait(next, characterId ?? '', item.trait);
     return given ? { state: given } : { why: 'who' };

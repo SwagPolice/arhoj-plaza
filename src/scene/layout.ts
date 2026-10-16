@@ -93,10 +93,17 @@ export function canPlace(layout: IslandLayout, item: Decor, x: number, z: number
 
 /** A new object of this kind, at the free spot closest to the middle, or null if the island is full. */
 export function placeNew(layout: IslandLayout, kind: DecorKind): Decor | null {
+  return placeItem(layout, { id: newDecorId(kind), kind, size: startSize(kind), rot: 0 });
+}
+
+/** A typical size for a new object of this kind. */
+export const startSize = (kind: DecorKind) =>
+  kind === 'tree' ? round2(between(0.9, 1.3)) : kind === 'pond' ? round2(between(1.1, 1.4)) : kind === 'rock' ? round2(between(0.3, 0.5)) : 1;
+
+/** An existing object (e.g. out of storage, keeping its id, size and turn) at the free spot closest to the middle. */
+export function placeItem(layout: IslandLayout, thing: Omit<Decor, 'x' | 'z'>): Decor | null {
   if (layout.items.length >= MAX_DECOR) return null;
-  const size =
-    kind === 'tree' ? round2(between(0.9, 1.3)) : kind === 'pond' ? round2(between(1.1, 1.4)) : kind === 'rock' ? round2(between(0.3, 0.5)) : 1;
-  const item: Decor = { id: newDecorId(kind), kind, x: 0, z: 0, size, rot: 0 };
+  const item: Decor = { ...thing, x: 0, z: 0 };
   const start = Math.random() * Math.PI * 2; // so new things don't always line up the same way
   for (let r = 0; r <= layout.radius; r += 0.35) {
     const steps = Math.max(1, Math.ceil((2 * Math.PI * r) / 0.35));
@@ -184,7 +191,7 @@ export function obstaclesFor(layout: IslandLayout): Obstacle[] {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100 || 0; // `|| 0` turns -0 into 0
-const newDecorId = (kind: DecorKind) => `${kind}-${Math.random().toString(36).slice(2, 8)}`;
+export const newDecorId = (kind: DecorKind) => `${kind}-${Math.random().toString(36).slice(2, 8)}`;
 
 // ---------- loading saved data ----------
 
