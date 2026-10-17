@@ -28,6 +28,7 @@ export class Agent {
   timer = Math.random() * 2;
   walkTime = 0;
   target = new THREE.Vector2();
+  path: THREE.Vector2[] = []; // waypoints around obstacles on the way to `target` (the last one is the target)
   heading = Math.random() * Math.PI * 2;
   phase = 0;
   cooldown = 3 + Math.random() * 5;
@@ -74,6 +75,73 @@ export function randomSpot(world: World, margin: number, others: Agent[] = []): 
   return p;
 }
 
+// ---------- finding a way round things ----------
+
+/** Does the straight line from p to q keep `margin` clear of every obstacle (ignoring any that `ignore` is inside)? */
+function clearLine(world: World, p: THREE.Vector2, q: THREE.Vector2, margin: number, ignore: THREE.Vector2[]) {
+  const dx = q.x - p.x;
+  const dz = q.y - p.y;
+  const len2 = dx * dx + dz * dz || 1e-9;
+  return world.obstacles.every((o) => {
+    if (ignore.some((v) => Math.hypot(v.x - o.x, v.y - o.z) < o.r + margin)) return true; // already inside: let it walk out
+    const t = Math.max(0, Math.min(1, ((o.x - p.x) * dx + (o.z - p.y) * dz) / len2));
+    return Math.hypot(p.x + dx * t - o.x, p.y + dz * t - o.z) >= o.r + margin;
+  });
+}
+
+/**
+ * A way from `from` to `to` that walks round obstacles: straight if nothing is in the way, otherwise via points
+ * placed around the obstacles (the shortest such route). Returns the waypoints after `from`, ending at `to`,
+ * or null if there's no way.
+ */
+export function route(world: World, from: THREE.Vector2, to: THREE.Vector2, margin: number): THREE.Vector2[] | null {
+  const ends = [from, to];
+  if (clearLine(world, from, to, margin, ends)) return [to.clone()];
+  const R = world.radius - margin - 0.1;
+  const nodes: THREE.Vector2[] = [from, to];
+  for (const o of world.obstacles) {
+    const r = o.r + margin + 0.15;
+    for (let k = 0; k < 8; k++) {
+      const p = new THREE.Vector2(o.x + Math.cos((k * Math.PI) / 4) * r, o.z + Math.sin((k * Math.PI) / 4) * r);
+      if (p.length() < R && isFree(world, p, margin + 0.05)) nodes.push(p);
+    }
+  }
+  // Shortest path over the points that can see each other (checked only as they're reached).
+  const dist = nodes.map(() => Infinity);
+  const prev = nodes.map(() => -1);
+  const done = nodes.map(() => false);
+  dist[0] = 0;
+  for (;;) {
+    let u = -1;
+    for (let i = 0; i < nodes.length; i++) if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
+    if (u < 0) return null;
+    if (u === 1) break;
+    done[u] = true;
+    for (let v = 1; v < nodes.length; v++) {
+      if (done[v]) continue;
+      const d = dist[u] + nodes[u].distanceTo(nodes[v]);
+      if (d < dist[v] && clearLine(world, nodes[u], nodes[v], margin, ends)) {
+        dist[v] = d;
+        prev[v] = u;
+      }
+    }
+  }
+  const path: THREE.Vector2[] = [];
+  for (let i = 1; i > 0; i = prev[i]) path.unshift(nodes[i].clone());
+  return path;
+}
+
+/** Set off towards `goal` along a way round obstacles. False (and nothing changes) if there's no way there. */
+export function walkTo(a: Agent, world: World, goal: THREE.Vector2): boolean {
+  const path = route(world, a.pos, goal, a.radius + 0.05);
+  if (!path) return false;
+  a.target.copy(goal);
+  a.path = path;
+  a.state = 'walk';
+  a.walkTime = 0;
+  return true;
+}
+
 export function stepAgents(agents: Agent[], world: World, dt: number, t: number, emit: Emit) {
   for (const a of agents) think(a, agents, world, dt, emit);
   separate(agents, world);
@@ -88,17 +156,17 @@ function think(a: Agent, agents: Agent[], world: World, dt: number, emit: Emit) 
   a.cooldown -= dt;
   if (a.state === 'idle') {
     a.timer -= dt;
-    if (a.timer <= 0) {
-      pickTarget(a, agents, world);
-      a.state = 'walk';
-      a.walkTime = 0;
-    }
+    if (a.timer <= 0) pickTarget(a, agents, world);
   } else if (a.state === 'walk') {
-    const dx = a.target.x - a.pos.x;
-    const dz = a.target.y - a.pos.y;
+    // Head for the next waypoint; on reaching it, move on to the one after.
+    while (a.path.length > 1 && a.pos.distanceTo(a.path[0]) < 0.15) a.path.shift();
+    const next = a.path[0] ?? a.target;
+    const dx = next.x - a.pos.x;
+    const dz = next.y - a.pos.y;
     const d = Math.hypot(dx, dz);
     a.walkTime += dt;
-    if (d < 0.15 || a.walkTime > 10) {
+    if ((d < 0.15 && a.path.length <= 1) || a.walkTime > 15) {
+      a.path = [];
       a.state = 'idle';
       a.timer = between(...a.trait.idle);
       if (Math.random() < 0.25) emit(a, pick(a.trait.moods));
@@ -140,7 +208,10 @@ function pickTarget(a: Agent, agents: Agent[], world: World) {
     candidate.copy(a.pos).add(away.normalize().multiplyScalar(2.5)).add(new THREE.Vector2(between(-1, 1), between(-1, 1)));
   }
   const ok = candidate.lengthSq() > 0 && candidate.length() < R && isFree(world, candidate, a.radius);
-  a.target.copy(ok ? candidate : randomSpot(world, a.radius));
+  // Walk there round anything in the way; if there's no way, try somewhere else (or rest a little longer).
+  if (ok && walkTo(a, world, candidate)) return;
+  for (let i = 0; i < 5; i++) if (walkTo(a, world, randomSpot(world, a.radius))) return;
+  a.timer = between(...a.trait.idle);
 }
 
 function separate(agents: Agent[], world: World) {

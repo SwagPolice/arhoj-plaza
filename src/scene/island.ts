@@ -227,13 +227,13 @@ function makeHarbour() {
   const g = new THREE.Group();
   const plank = glaze('#e8dcc4', { roughness: 0.6, clearcoat: 0.2 });
   const post = glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 11; i++) {
     const p = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.22), plank);
     p.position.set(0, 0.15, -0.35 + i * 0.25); // just above the island's rim
     p.rotation.y = (i % 2 ? 1 : -1) * 0.015;
     g.add(p);
   }
-  for (const [x, z, top] of [[-0.29, -0.3, 0.13], [0.29, -0.3, 0.13], [-0.29, 0.9, 0.13], [0.29, 0.9, 0.13], [-0.29, 1.75, 0.13], [0.29, 1.75, 0.13]]) {
+  for (const [x, z, top] of [[-0.29, -0.3, 0.13], [0.29, -0.3, 0.13], [-0.29, 1.05, 0.13], [0.29, 1.05, 0.13], [-0.29, 2.15, 0.13], [0.29, 2.15, 0.13]]) {
     const bottom = z < 0.5 ? 0 : -1.12; // on the grass, or down into the water
     const p = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, top - bottom, 10), post);
     p.position.set(x, (top + bottom) / 2, z);
@@ -256,7 +256,8 @@ function makeHarbour() {
   sail.rotation.y = -Math.PI / 2; // along the boat
   sail.position.set(0, 0.28, 0.1);
   boat.add(hull, rim, seat, mast, sail);
-  boat.position.set(0.72, -1.12, 1.45);
+  boat.scale.setScalar(2); // big enough to carry a crew you can see
+  boat.position.set(1.08, -1.12, 1.65);
   g.add(boat);
   const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.3), glaze('#c79a62', { roughness: 0.7, clearcoat: 0 }));
   crate.name = 'crate';

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { IslandView } from '../scene/island-view';
-import type { IslandLayout } from '../scene/layout';
+import { footprint, type IslandLayout } from '../scene/layout';
 import { glaze } from '../scene/stage';
 import { disposeObject } from '../character/build';
 import { EYES, PERSONALITIES, randomName, type Eyes, type Personality } from '../character/recipe';
@@ -8,7 +8,7 @@ import { CLAY } from '../character/palette';
 import { loadStudio, saveStudio } from '../storage';
 import { button, el } from '../ui/dom';
 import { openDialog, row } from '../ui/share-dialogs';
-import type { Agent } from '../plaza/behaviour';
+import { walkTo, type Agent } from '../plaza/behaviour';
 import { Decorator } from '../plaza/decorate';
 import {
   addTo, advance, BOWL_COST, bowlOf, buyBowl, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
@@ -84,6 +84,7 @@ export class Studio extends IslandView {
 
     this.scene.add(this.drops);
     this.merchant = new MerchantBalloon(this.scene);
+    this.harbourView.onDocked = () => this.crewAshore();
     // Arranging what you bought: Creative's Decorate tools, without adding, removing or resizing the island.
     this.decorator = new Decorator(
       {
@@ -201,13 +202,16 @@ export class Studio extends IslandView {
 
   protected onLayoutApplied() {
     this.decorator?.refresh();
+    if (this.state) this.uncoverDrops();
   }
 
   protected onUpdate(dt: number, t: number) {
     this.decorator.update(dt, this.w, this.h);
     this.merchant.update(dt, t, this.camera);
     const harbour = harbourOf(this.state);
-    this.harbourView.update(dt, t, harbour ? this.island.decor.get(harbour.id) : undefined, !!this.state.harbour.trip, !!this.state.harbour.haul);
+    const trip = this.state.harbour.trip;
+    const crew = trip ? this.state.characters.filter((c) => trip.crew.includes(c.id)) : null;
+    this.harbourView.update(dt, t, harbour ? this.island.decor.get(harbour.id) : undefined, crew, !!this.state.harbour.haul);
     if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
     const { state, yields, mixed, visit, boatHome } = advance(this.state, dt * this.speed);
@@ -347,15 +351,41 @@ export class Studio extends IslandView {
   }
 
   /** A spot on the island a little way from where something was made. */
-  private landingSpot(from: THREE.Vector3) {
-    const a = Math.random() * Math.PI * 2;
-    const d = 0.5 + Math.random() * 0.5;
-    let x = from.x + Math.cos(a) * d;
-    let z = from.z + Math.sin(a) * d;
+  private landingSpot(from: { x: number; z: number }) {
     const max = this.state.island.radius - 0.45;
-    const len = Math.hypot(x, z);
-    if (len > max) [x, z] = [(x / len) * max, (z / len) * max];
-    return { x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100 };
+    let fallback: { x: number; z: number } | null = null;
+    // Somewhere close by, in the open, so it's easy to spot: never under a decoration or a building.
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 0.5 + Math.random() * (0.5 + i * 0.08); // look a little further out each try
+      let x = from.x + Math.cos(a) * d;
+      let z = from.z + Math.sin(a) * d;
+      const len = Math.hypot(x, z);
+      if (len > max) [x, z] = [(x / len) * max, (z / len) * max];
+      const spot = { x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100 };
+      fallback ??= spot;
+      if (this.inTheOpen(spot.x, spot.z)) return spot;
+    }
+    return fallback!;
+  }
+
+  /** True if nothing on the island covers this spot (with a little room around, so a drop isn't half hidden). */
+  private inTheOpen(x: number, z: number) {
+    return this.state.island.items.every((d) => Math.hypot(x - d.x, z - d.z) > footprint(d) + 0.3);
+  }
+
+  /** Drops something now stands on (a decoration placed over them) roll out into the open. */
+  private uncoverDrops() {
+    let moved = false;
+    const ground = this.state.ground.map((d) => {
+      if (this.inTheOpen(d.x, d.z)) return d;
+      moved = true;
+      const spot = this.landingSpot(d);
+      const obj = this.drops.children.find((o) => o.userData.dropId === d.id);
+      obj?.position.set(spot.x, obj.position.y, spot.z);
+      return { ...d, ...spot };
+    });
+    if (moved) this.state = { ...this.state, ground };
   }
 
   private addDrop(d: Drop, from: THREE.Vector3 | null) {
@@ -722,9 +752,31 @@ export class Studio extends IslandView {
   /** The characters on the island: everyone except the crew away at sea. */
   private syncHome() {
     const away = atSea(this.state);
+    const arriving = this.harbourView.arriving; // still on the boat, sailing home
     const before = this.agents.length;
-    this.syncAgents(this.state.characters.filter((c) => !away.has(c.id)));
+    this.syncAgents(this.state.characters.filter((c) => !away.has(c.id) && !arriving.has(c.id)));
     if (this.agents.length < before) this.bubbles.clear(); // no bubbles left floating where the crew stood
+  }
+
+  /** The boat is back at the pier: the crew step ashore beside it and stroll off. */
+  private crewAshore() {
+    const before = new Set(this.agents.map((a) => a.recipe.id));
+    this.syncHome();
+    const harbour = harbourOf(this.state);
+    if (!harbour) return;
+    const len = Math.hypot(harbour.x, harbour.z) || 1;
+    const inward = new THREE.Vector2(-harbour.x / len, -harbour.z / len);
+    const side = new THREE.Vector2(-inward.y, inward.x);
+    this.agents
+      .filter((a) => !before.has(a.recipe.id))
+      .forEach((a, i) => {
+        a.pos.set(harbour.x, harbour.z).addScaledVector(inward, 0.9).addScaledVector(side, (i - 1) * 0.5);
+        a.target.copy(a.pos);
+        a.path = [];
+        a.state = 'idle';
+        a.timer = 0.5 + i * 0.4;
+        if (i === 0) this.say(a, '👋', 0.2);
+      });
   }
 
   private buildHarbour() {
@@ -896,9 +948,7 @@ export class Studio extends IslandView {
       this.tidyRest.set(a.recipe.id, rest);
       if (rest > 0 || a.state !== 'idle' || !ground.length) continue;
       const near = ground.reduce((m, d) => (Math.hypot(d.x - a.pos.x, d.z - a.pos.y) < Math.hypot(m.x - a.pos.x, m.z - a.pos.y) ? d : m));
-      a.target.set(near.x, near.z);
-      a.state = 'walk';
-      a.walkTime = 0;
+      walkTo(a, this.world, new THREE.Vector2(near.x, near.z));
       this.tidyRest.set(a.recipe.id, 3 + Math.random() * 3);
     }
   }

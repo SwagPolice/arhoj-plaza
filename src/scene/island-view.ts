@@ -204,6 +204,7 @@ export abstract class IslandView implements Mode {
       a.partner = null;
       a.timer = Math.random();
       a.target.copy(a.pos);
+      a.path = [];
       placed.push(a);
     }
   }
