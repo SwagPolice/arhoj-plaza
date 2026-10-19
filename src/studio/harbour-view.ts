@@ -18,7 +18,13 @@ export class HarbourView {
   private away = 0; // 0 = moored, 1 = gone over the horizon
   private settled = false; // first frame after loading: jump straight to where it should be
   private aboard: CharacterRecipe[] = [];
+  private atSea = false; // a trip is on (the boat is out, or heading out)
   private seated: { boat: THREE.Object3D; key: string } | null = null;
+
+  /** True while the boat is gliding home with its crew (the haul waits until it docks). */
+  get sailingHome() {
+    return this.away > 0 && this.aboard.length > 0 && !this.atSea;
+  }
 
   /** Characters still on the boat on its way home: not on the island yet. */
   get arriving(): Set<string> {
@@ -28,7 +34,7 @@ export class HarbourView {
   update(dt: number, t: number, harbour: THREE.Object3D | undefined, crew: CharacterRecipe[] | null, haul: boolean) {
     const boat = harbour?.getObjectByName('boat');
     const crate = harbour?.getObjectByName('crate');
-    if (crate) crate.visible = haul;
+    this.atSea = !!crew;
     if (crew) this.aboard = crew;
     const target = crew ? 1 : 0;
     if (!this.settled) {
@@ -40,6 +46,7 @@ export class HarbourView {
       this.aboard = [];
       this.onDocked?.();
     }
+    if (crate) crate.visible = haul && this.away === 0; // the crate comes ashore with the boat
     if (!boat) return;
     const moored: THREE.Vector3 = (boat.userData.moored ??= boat.position.clone());
     const k = this.away * this.away * (3 - 2 * this.away); // ease in and out

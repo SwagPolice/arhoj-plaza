@@ -62,6 +62,16 @@ describe('his visits', () => {
     expect(advance(old, 1).state.merchant.wait).toBeCloseTo(NEXT_VISIT.max - 1);
   });
 
+  test('once everything is sold, he leaves at once and his time away starts', () => {
+    const s = { ...visited(), merchant: { ...visited().merchant, offers: [{ id: 'rock', left: 1 }] } };
+    const r = buyItem(s, 'rock');
+    if (!('state' in r)) throw new Error(r.why);
+    const next = advance(r.state, 0.016);
+    expect(next.visit).toBe('left');
+    expect(next.state.merchant.wait).toBeGreaterThanOrEqual(NEXT_VISIT.min);
+    expect(advance(s, 0.016).visit).toBeNull(); // something left: he stays
+  });
+
   test('he packs a new basket each visit and takes the leftovers away with him', () => {
     const here = advance(withBowl(), FIRST_VISIT).state;
     expect(here.merchant.offers).toHaveLength(STEPS[0].offers);

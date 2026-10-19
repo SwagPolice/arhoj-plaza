@@ -16,7 +16,7 @@ import {
 } from './economy';
 import { colourName, mixResult, recipeFor } from './mixing';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
-import { buyItem, canAfford, giveClay, hasTrait, nextStep, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
+import { buyItem, canAfford, giveClay, hasTrait, nextStep, soldOut, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
 import { MerchantBalloon } from './merchant-view';
 import { putAway, stored, takeOut } from './storage';
 import {
@@ -175,7 +175,7 @@ export class Studio extends IslandView {
 
   resize(w: number, h: number) {
     super.resize(w, h);
-    this.merchant?.setSpot(this.layout.radius, w / h >= 0.8);
+    this.merchant?.setSpot(this.layout.radius, this.camera);
   }
 
   // ---------- IslandView hooks ----------
@@ -213,9 +213,12 @@ export class Studio extends IslandView {
     const harbour = harbourOf(this.state);
     const trip = this.state.harbour.trip;
     const crew = trip ? this.state.characters.filter((c) => trip.crew.includes(c.id)) : null;
+    const wasSailingHome = this.harbourView.sailingHome;
     this.harbourView.update(dt, t, harbour ? this.island.decor.get(harbour.id) : undefined, crew, !!this.state.harbour.haul);
+    if (this.harbourView.sailingHome !== wasSailingHome) this.render();
     if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
+    const sold = soldOut(this.state.merchant);
     const { state, yields, mixed, visit, boatHome } = advance(this.state, dt * this.speed);
     this.state = state;
     // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
@@ -228,7 +231,7 @@ export class Studio extends IslandView {
     if (fresh.length) this.place(fresh);
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
     if (boatHome) this.onBoatHome();
-    if (visit) this.onVisit(visit);
+    if (visit) this.onVisit(visit, sold);
     // The scene follows the save: he's shown if he's here (after loading or coming back), gone if he left meanwhile.
     else if (this.state.merchant.here && !this.merchant.root.visible) this.merchant.show(STEPS[stepOf(this.state)].scale);
     else if (!this.state.merchant.here && this.merchant.ready) {
@@ -633,14 +636,14 @@ export class Studio extends IslandView {
 
   // ---------- the merchant ----------
 
-  private onVisit(visit: 'arrived' | 'left') {
+  private onVisit(visit: 'arrived' | 'left', sold = false) {
     if (visit === 'arrived') {
       this.merchant.arrive(STEPS[stepOf(this.state)].scale);
       this.toast(this.state.merchant.visits === 1 ? 'A balloon is coming! The merchant has arrived: tap him to see what he brought.' : 'The merchant is back! Tap him to see what he brought.');
     } else {
       this.shop?.close();
       this.merchant.leave();
-      this.toast("The merchant floated off. He'll be back.");
+      this.toast(sold ? 'Sold out! The merchant floated off to find more.' : "The merchant floated off. He'll be back.");
     }
     this.persist();
     this.render();
@@ -768,6 +771,8 @@ export class Studio extends IslandView {
   private crewAshore() {
     const before = new Set(this.agents.map((a) => a.recipe.id));
     this.syncHome();
+    if (this.state.harbour.haul) this.toast('The boat is back! Tap the harbour to see what they found.');
+    this.render();
     const harbour = harbourOf(this.state);
     if (!harbour) return;
     const len = Math.hypot(harbour.x, harbour.z) || 1;
@@ -801,6 +806,7 @@ export class Studio extends IslandView {
   /** Tap the harbour: send a crew, see how long until they're back, or open what they brought. */
   private openHarbour() {
     this.harbourDialog?.close();
+    if (this.harbourView.sailingHome) return this.toast('The boat is almost back…');
     const h = this.state.harbour;
     if (h.trip) {
       const where = destination(h.trip.to)?.name.toLowerCase() ?? 'sea';
@@ -916,10 +922,10 @@ export class Studio extends IslandView {
     this.harbourDialog = dialog;
   }
 
+  /** The trip is over: the boat starts gliding home (the crew step ashore, and the haul is unloaded, when it docks). */
   private onBoatHome() {
     this.syncHome();
     this.harbourDialog?.close();
-    this.toast('The boat is back! Tap the harbour to see what they found.');
     this.persist();
     this.render();
   }
@@ -1086,7 +1092,9 @@ export class Studio extends IslandView {
       }),
     );
     this.paintList.style.display = this.paintOpen && totalPaint ? '' : 'none';
-    this.goal.textContent = nextGoal(s);
+    const goal = nextGoal(s);
+    // The boat's haul only counts once it has docked.
+    this.goal.textContent = this.harbourView.sailingHome && goal.startsWith('The boat is back') ? 'The boat is coming home…' : goal;
 
     const gc = ghostCost(s);
     const wc = wellCost(s);

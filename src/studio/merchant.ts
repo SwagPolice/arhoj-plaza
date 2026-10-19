@@ -81,6 +81,9 @@ export function packBasket(step: number, rand: () => number): Offer[] {
   return offers;
 }
 
+/** True once everything he brought this visit is sold: then he packs up and goes. */
+export const soldOut = (m: Merchant) => !!m.here && !!m.offers?.length && m.offers.every((o) => o.left < 1);
+
 /** What he brought this visit, in shop order, with how many are left. */
 export const stock = (s: StudioState): (Item & { left: number })[] =>
   ITEMS.flatMap((item) => {
@@ -158,6 +161,7 @@ export function stepVisit(
       left -= now.wait;
       now = { ...now, here: true, wait: 0, stay: stayFor, visits: now.visits + 1, offers: packBasket(step, rand) };
     } else {
+      if (soldOut(now)) now = { ...now, stay: 0 }; // nothing left to sell: off he goes, and his time away starts
       if (now.stay > left) {
         now = { ...now, stay: now.stay - left };
         break;
