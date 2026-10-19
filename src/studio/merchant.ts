@@ -13,11 +13,12 @@ import { PRIMARIES, type Merchant, type Offer, type StudioState, type Trait } fr
  * stays a little longer, finds new kinds of things, and packs one more kind into his basket.
  */
 export const STEPS = [
-  { name: 'Nearby', paid: 0, scale: 1.6, stay: 5 * 60, offers: 4, news: '' },
-  { name: 'The coast', paid: 300, scale: 2, stay: 7 * 60, offers: 5, news: 'shells, sea glass' },
+  { name: 'Nearby', paid: 0, scale: 1.6, stay: 20 * 60, offers: 4, news: '' },
+  { name: 'The coast', paid: 300, scale: 2, stay: 25 * 60, offers: 5, news: 'shells, sea glass' },
 ] as const;
 
-export const NEXT_VISIT = { min: 2 * 3600, max: 3 * 3600 }; // seconds between visits: seeing him is a treat
+export const NEXT_VISIT = { min: 3600, max: 2 * 3600 }; // seconds between visits: seeing him is a treat
+export const LINGER = 5 * 60; // if you come back near the end of his visit, he stays at least this much longer
 
 /** How likely a kind of thing is to be in his basket (a weight), and how many of it he brings. */
 export const RARITY = {
@@ -146,6 +147,7 @@ export function stepVisit(
 ): { merchant: Merchant; visit: 'arrived' | 'left' | null } {
   const stayFor = STEPS[step].stay;
   let now = m.here && !m.offers ? { ...m, offers: packBasket(step, rand) } : m; // a save from before baskets
+  if (!now.here && now.wait > NEXT_VISIT.max) now = { ...now, wait: NEXT_VISIT.max }; // a wait from older, rarer rules
   let left = dt;
   while (hasBowl) {
     if (!now.here) {

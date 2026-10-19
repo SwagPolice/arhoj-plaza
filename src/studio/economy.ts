@@ -9,7 +9,7 @@ import { placeNew } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
-import { hasTrait, stepOf, stepVisit } from './merchant';
+import { hasTrait, LINGER, stepOf, stepVisit } from './merchant';
 import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
@@ -125,7 +125,10 @@ const isEmpty = (p: Purse) => p.clay === 0 && Object.values(p.paint).every((n) =
 export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number; ground: Yield[] } {
   const seconds = Math.min(AWAY_CAP, Math.max(0, (now - s.lastSeen) / 1000));
   if (seconds < AWAY_MIN) return { state: { ...s, lastSeen: now }, seconds: 0, ground: [] };
-  const { state, yields } = advance(s, seconds, AWAY_SPEED);
+  const { state: later, yields } = advance(s, seconds, AWAY_SPEED);
+  // If the merchant is about to leave as you come back, he lingers a little so you can still catch him.
+  const m = later.merchant;
+  const state = m.here && m.stay < LINGER ? { ...later, merchant: { ...m, stay: LINGER } } : later;
   const bowl = bowlOf(s)?.id ?? 'bowl';
   let purse = state.purse;
   for (const y of yields.filter((y) => y.from === bowl)) purse = addTo(purse, y.what, y.amount);
@@ -242,6 +245,9 @@ export function dip(s: StudioState, characterId: string, colour: string): Studio
 export function nextGoal(s: StudioState): string {
   const more = (n: number) => `${n} more clay`;
   const paints = Object.values(s.purse.paint).reduce((n, k) => n + k, 0);
+  // Things that won't wait come first.
+  if (s.merchant.here) return 'The merchant is here: tap him';
+  if (s.harbour.haul) return 'The boat is back: tap the harbour';
   if (!s.wellsBuilt) {
     const cost = wellCost(s);
     return s.purse.clay >= cost ? 'Next: build your first glaze well!' : `Next: Glaze well, ${more(cost - s.purse.clay)}`;
@@ -253,8 +259,6 @@ export function nextGoal(s: StudioState): string {
   if (!ownsBowl(s)) {
     return s.purse.clay >= BOWL_COST ? 'Next: build the mixing bowl!' : `Next: Mixing bowl, ${more(BOWL_COST - s.purse.clay)}`;
   }
-  if (s.merchant.here) return 'The merchant is here: tap him';
-  if (s.harbour.haul) return 'The boat is back: tap the harbour';
   if (s.bowl) return 'The bowl is stirring…';
   if (!s.discovered.length) return paints >= 2 ? 'Next: tap the bowl and mix two paints' : 'Next: collect two paints to mix';
   if (harbourUnlocked(s) && !harbourOf(s)) {

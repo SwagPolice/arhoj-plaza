@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { advance, BOWL_COST, buyBowl, buyGhost, buyWell, comeBack, dip } from '../src/studio/economy';
 import {
-  buyItem, findable, giveClay, giveTrait, hasTrait, ITEMS, NEXT_VISIT, nextStep, packBasket, RARITY, stepOf, STEPS, stock, tidyPickups,
+  buyItem, findable, giveClay, giveTrait, hasTrait, ITEMS, LINGER, NEXT_VISIT, nextStep, packBasket, RARITY, stepOf, STEPS, stock, tidyPickups,
 } from '../src/studio/merchant';
 import { mulberry32 } from '../src/util/random';
 import { bareGhost, FIRST_VISIT, newStudio, PRIMARIES, type StudioState } from '../src/studio/state';
@@ -25,7 +25,8 @@ describe('his visits', () => {
     expect(r.state.merchant).toMatchObject({ here: true, visits: 1, stay: STEPS[0].stay });
   });
 
-  test('he stays a few minutes, then leaves and comes back 2 to 3 hours later', () => {
+  test('he stays 20 minutes, then leaves and comes back 1 to 2 hours later', () => {
+    expect(STEPS[0].stay).toBe(20 * 60);
     let s = advance(withBowl(), FIRST_VISIT).state;
     const gone = advance(s, STEPS[0].stay);
     expect(gone.visit).toBe('left');
@@ -45,6 +46,22 @@ describe('his visits', () => {
     expect(later.merchant.visits).toBe(1);
   });
 
+  test('coming back near the end of his visit, he lingers a few minutes so you can catch him', () => {
+    const here = advance(withBowl(), FIRST_VISIT).state; // arrived, with his whole stay ahead
+    const nearlyGone = { ...here, merchant: { ...here.merchant, stay: 61 }, lastSeen: 0 };
+    const back = comeBack(nearlyGone, 60 * 1000).state; // a minute away: one second of his visit left
+    expect(back.merchant.here).toBe(true);
+    expect(back.merchant.stay).toBe(LINGER);
+    const plenty = comeBack({ ...here, lastSeen: 0 }, 120 * 1000).state;
+    expect(plenty.merchant.stay).toBeCloseTo(STEPS[0].stay - 120); // no change when he has time left
+  });
+
+  test('a long wait from the older, rarer visits is cut down to 2 hours', () => {
+    const s = withBowl();
+    const old = { ...s, merchant: { ...s.merchant, visits: 1, wait: 3 * 3600 } };
+    expect(advance(old, 1).state.merchant.wait).toBeCloseTo(NEXT_VISIT.max - 1);
+  });
+
   test('he packs a new basket each visit and takes the leftovers away with him', () => {
     const here = advance(withBowl(), FIRST_VISIT).state;
     expect(here.merchant.offers).toHaveLength(STEPS[0].offers);
@@ -55,7 +72,7 @@ describe('his visits', () => {
   test('a long time away can hold several visits, and always ends in a sensible state', () => {
     const back = comeBack(withBowl(), 8 * 3600 * 1000).state;
     expect(back.merchant.visits).toBeGreaterThanOrEqual(3);
-    expect(back.merchant.visits).toBeLessThanOrEqual(5);
+    expect(back.merchant.visits).toBeLessThanOrEqual(6);
     if (back.merchant.here) expect(back.merchant.stay).toBeLessThanOrEqual(STEPS[0].stay);
     else expect(back.merchant.wait).toBeLessThanOrEqual(NEXT_VISIT.max);
   });
