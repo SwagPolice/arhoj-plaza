@@ -45,6 +45,12 @@ export type Harbour = {
 };
 export const newHarbour = (): Harbour => ({ level: 0, trip: null, haul: null, trips: {} });
 
+/**
+ * How a character feels: comfort (from the island around it, eased in), lift (from chats and taps, fading),
+ * and when it was last tapped (ms), so taps can't be farmed.
+ */
+export type Mood = { comfort: number; lift: number; petted: number };
+
 /** A decoration (or a well or the bowl) put away: off the island, keeping its id, size and turn. */
 export type Stored = { id: string; kind: DecorKind; size: number; rot: number };
 
@@ -68,6 +74,8 @@ export type StudioState = {
   traits: Record<string, Trait[]>; // by character id (added after v1 shipped: missing = none)
   harbour: Harbour; // (added after v1 shipped: missing = a harbour-to-be, nothing at sea)
   storage: Stored[]; // things put away, in the order they went in (added after v1 shipped: missing = empty)
+  mood: Record<string, Mood>; // by character id (added after v1 shipped: missing = neutral)
+  friends: Record<string, number>; // friendship 0–1 by pair, 'idA|idB' sorted (added after v1 shipped: missing = none)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -99,6 +107,8 @@ export function newStudio(now = Date.now()): StudioState {
     traits: {},
     harbour: newHarbour(),
     storage: [],
+    mood: {},
+    friends: {},
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -205,6 +215,18 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     taken.add(d.id);
     storage.push({ id: d.id, kind, size: count(d.size, 1) || 1, rot: count(d.rot) });
   }
+  const unit = (v: unknown) => Math.min(1, count(v));
+  const mood: Record<string, Mood> = {};
+  if (isObj(o.mood))
+    for (const [id, m] of Object.entries(o.mood)) {
+      if (ids.has(id) && isObj(m)) mood[id] = { comfort: unit(m.comfort), lift: unit(m.lift), petted: count(m.petted) };
+    }
+  const friends: Record<string, number> = {};
+  if (isObj(o.friends))
+    for (const [pair, v] of Object.entries(o.friends)) {
+      const [a, b, extra] = pair.split('|');
+      if (extra === undefined && a && b && a < b && ids.has(a) && ids.has(b) && unit(v) > 0) friends[pair] = unit(v);
+    }
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
@@ -224,6 +246,8 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     traits,
     harbour,
     storage,
+    mood,
+    friends,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

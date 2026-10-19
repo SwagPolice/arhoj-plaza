@@ -11,6 +11,7 @@ import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioSt
 import { MIXABLE, mixResult } from './mixing';
 import { hasTrait, LINGER, stepOf, stepVisit } from './merchant';
 import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
+import { BOOST, fadeLifts, happiness } from './happiness';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -69,7 +70,7 @@ export function advance(
   for (const c of s.characters) {
     if (atSea.has(c.id)) continue;
     const { every, double } = RATES[c.personality];
-    const p = (progress[c.id] ?? rand() * every) + making; // newcomers start part-way, so drops don't all land at once
+    const p = (progress[c.id] ?? rand() * every) + making * (1 + BOOST * happiness(s, c.id)); // happier: a bit faster // newcomers start part-way, so drops don't all land at once
     const n = Math.floor(p / every);
     progress[c.id] = p - n * every;
     const colour = topColour(c);
@@ -104,7 +105,8 @@ export function advance(
   }
   const { merchant, visit } = stepVisit(s.merchant, ownsBowl(s), stepOf(s), dt, rand);
   const { state: sailed, home } = stepTrip(s, dt, rand);
-  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits };
+  const mood = fadeLifts(s.mood, dt);
+  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits, mood };
   return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home };
 }
 

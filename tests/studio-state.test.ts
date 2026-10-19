@@ -61,6 +61,16 @@ describe('studio saves', () => {
     expect(messy.storage.map((d) => d.id)).toEqual(['tree-a', 'well-b']);
   });
 
+  test('moods and friendships survive a reload; rubbish is cleaned up', () => {
+    const base = newStudio(1000);
+    const [a] = base.characters;
+    const s = { ...base, characters: [a, { ...a, id: 'zz' }], mood: { [a.id]: { comfort: 0.3, lift: 0.1, petted: 5 } }, friends: { [`${a.id}|zz`]: 0.4 } };
+    expect(normaliseStudio(JSON.parse(JSON.stringify(studioData(s))))).toEqual(s);
+    const messy = normaliseStudio({ ...studioData(s), mood: { [a.id]: { comfort: 7, lift: -1 }, ghost: { comfort: 1 } }, friends: { [`zz|${a.id}`]: 0.5, 'x|y': 1, [`${a.id}|zz`]: 3 } }, 5);
+    expect(messy.mood).toEqual({ [a.id]: { comfort: 1, lift: 0, petted: 0 } });
+    expect(messy.friends).toEqual({ [`${a.id}|zz`]: 1 });
+  });
+
   test('nothing, rubbish or an empty save gives a fresh studio, always with a ghost', () => {
     expect(normaliseStudio(null, 5).characters).toHaveLength(1);
     expect(normaliseStudio('hello', 5).lastSeen).toBe(5);

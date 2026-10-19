@@ -142,10 +142,11 @@ export function walkTo(a: Agent, world: World, goal: THREE.Vector2): boolean {
   return true;
 }
 
-export function stepAgents(agents: Agent[], world: World, dt: number, t: number, emit: Emit) {
+/** `onChat` hears when two characters start a chat (the Studio uses it for happiness and friendships). */
+export function stepAgents(agents: Agent[], world: World, dt: number, t: number, emit: Emit, onChat?: (a: Agent, b: Agent) => void) {
   for (const a of agents) think(a, agents, world, dt, emit);
   separate(agents, world);
-  meet(agents, dt, emit);
+  meet(agents, dt, emit, onChat);
   for (const a of agents) {
     animate(a, dt, t);
     lookAround(a, agents, dt);
@@ -247,7 +248,7 @@ function separate(agents: Agent[], world: World) {
   }
 }
 
-function meet(agents: Agent[], dt: number, emit: Emit) {
+function meet(agents: Agent[], dt: number, emit: Emit, onChat?: (a: Agent, b: Agent) => void) {
   const free = (a: Agent) => a.state !== 'chat' && a.cooldown <= 0;
   for (let i = 0; i < agents.length; i++) {
     for (let j = i + 1; j < agents.length; j++) {
@@ -266,6 +267,7 @@ function meet(agents: Agent[], dt: number, emit: Emit) {
       const [sa, sb] = greeting(a, b);
       emit(a, sa);
       emit(b, sb, 0.5);
+      onChat?.(a, b);
     }
   }
 }

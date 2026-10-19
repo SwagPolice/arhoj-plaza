@@ -24,6 +24,7 @@ import {
   harbourUnlocked, isOpen, setSail,
 } from './harbour';
 import { HarbourView } from './harbour-view';
+import { bestFriend, chatted, comfortHere, happiness, hearts, petted, settleComfort } from './happiness';
 import type { Find } from './state';
 
 const PERSONALITY_ICON: Record<Personality, string> = { calm: '🍵', curious: '🔍', shy: '🌱', bouncy: '🎵' };
@@ -63,6 +64,7 @@ export class Studio extends IslandView {
   private shop: HTMLDialogElement | null = null;
   private tidyRest = new Map<string, number>(); // seconds before a Tidy character goes after the next drop
   private tidyPick = new Map<string, number>(); // seconds before it can pick up another
+  private comfortClock = 0; // seconds since comfort was last updated
   private card = el('div', 'card studio-card');
   private cardFor: string | null = null;
   private shown = ''; // what the HUD last showed, to bump only what changed
@@ -234,6 +236,7 @@ export class Studio extends IslandView {
       this.shop?.close();
     }
     this.tidyUp(dt);
+    this.feelAround(dt);
     this.animateDrops(dt);
     this.stirBowl(t);
     if ((this.saveClock += dt) > 5) this.persist();
@@ -262,7 +265,10 @@ export class Studio extends IslandView {
       return;
     }
     agent.lookAt(this.camera.position.x, this.camera.position.z, 3);
-    this.say(agent, '😊');
+    // A little hop, and hearts for how happy it is (a tap is a little attention, too).
+    this.state = petted(this.state, agent.recipe.id, Date.now());
+    agent.built.pose.position.y = 0.3;
+    this.say(agent, '❤️'.repeat(hearts(happiness(this.state, agent.recipe.id))));
     this.showCard(agent.recipe.id);
   }
 
@@ -924,6 +930,24 @@ export class Studio extends IslandView {
     return names.length < 2 ? (names[0] ?? 'nobody') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
   }
 
+  // ---------- happiness ----------
+
+  protected onChat(a: Agent, b: Agent) {
+    this.state = chatted(this.state, a.recipe.id, b.recipe.id);
+  }
+
+  /** Every couple of seconds, each character's comfort eases towards how comfortable its spot is. */
+  private feelAround(dt: number) {
+    if ((this.comfortClock += dt) < 2) return;
+    const elapsed = this.comfortClock * this.speed;
+    this.comfortClock = 0;
+    const n = this.state.characters.length;
+    for (const a of this.agents) {
+      const target = comfortHere(this.state.island, { x: a.pos.x, z: a.pos.y }, n);
+      this.state = settleComfort(this.state, a.recipe.id, target, elapsed);
+    }
+  }
+
   // ---------- traits ----------
 
   /** Tidy characters pick up drops near them, and now and then stroll over to the nearest one. */
@@ -982,6 +1006,9 @@ export class Studio extends IslandView {
     ];
     if (hasTrait(this.state, id, 'tidy')) parts.push(el('div', 'card-trait', '✨ Tidy: picks up drops nearby'));
     if (hasTrait(this.state, id, 'seafarer')) parts.push(el('div', 'card-trait', '⚓ Seafarer: finds a little more on expeditions'));
+    const friend = bestFriend(this.state, id);
+    const friendName = friend && this.state.characters.find((c) => c.id === friend)?.name;
+    if (friendName) parts.push(el('div', 'card-trait', `🤝 Best friend: ${friendName}`));
     if (r.layers.length) {
       parts.push(el('p', 'card-line', `Dipped in ${colourName(r.layers[0].colour)}. It sometimes drops that paint.`));
     } else {

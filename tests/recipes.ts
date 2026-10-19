@@ -113,6 +113,8 @@ export const ADDED_SINCE_STUDIO_V1 = {
   traits: {},
   harbour: { level: 0, trip: null, haul: null, trips: {} },
   storage: [],
+  mood: {},
+  friends: {},
 };
 
 // An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.

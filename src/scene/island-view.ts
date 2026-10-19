@@ -89,6 +89,8 @@ export abstract class IslandView implements Mode {
   protected get wideView() {
     return false;
   }
+  /** Two characters started chatting. */
+  protected onChat(_a: Agent, _b: Agent) {}
   /** Every frame, after the characters moved. */
   protected onUpdate(_dt: number, _t: number) {}
   /** After the island was rebuilt from a new layout. */
@@ -119,7 +121,7 @@ export abstract class IslandView implements Mode {
 
   update(dt: number, t: number) {
     this.controls.update();
-    if (!this.frozen) stepAgents(this.agents, this.world, dt, t, (a, text, delay) => this.say(a, text, delay));
+    if (!this.frozen) stepAgents(this.agents, this.world, dt, t, (a, text, delay) => this.say(a, text, delay), (a, b) => this.onChat(a, b));
     this.onUpdate(dt, t);
     this.bubbles.update(this.w, this.h);
     // Slow drift between morning and midday light.
