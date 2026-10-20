@@ -25,7 +25,7 @@ export const WELL_EVERY = 150; // seconds per paint from a glaze well
 export const AWAY_CAP = 8 * 3600; // time away counts up to 8 hours
 export const AWAY_MIN = 60; // shorter breaks just carry on
 export const AWAY_SPEED = 1 / 3; // while you're away, the studio works at a third of its speed
-export const TIDY_AWAY = 60; // drops a Tidy character picks up per hour while you're away
+export const TIDY_AWAY = 120; // drops a Tidy character picks up per hour while you're away (about two ghosts' worth)
 export const MIX_TIME = 5; // seconds the bowl stirs
 export const MIX_MAKES = 2; // drops of the new colour from one mix
 export const BOWL_COST = 40;
@@ -115,13 +115,23 @@ export function addTo(p: Purse, what: string, amount: number): Purse {
   return { ...p, paint: { ...p.paint, [what]: (p.paint[what] ?? 0) + amount } };
 }
 
+/** Things made, taken turn by turn from each maker (a ghost, a well…): close to the order they were made in. */
+function takeTurns(yields: Yield[]): Yield[] {
+  const byMaker = new Map<string, Yield[]>();
+  for (const y of yields) byMaker.set(y.from, [...(byMaker.get(y.from) ?? []), y]);
+  const queues = [...byMaker.values()];
+  const out: Yield[] = [];
+  for (let i = 0; out.length < yields.length; i++) for (const q of queues) if (q[i]) out.push(q[i]);
+  return out;
+}
+
 const isEmpty = (p: Purse) => p.clay === 0 && Object.values(p.paint).every((n) => n === 0);
 
 /**
  * Coming back after time away (or a reload), counted up to 8 hours; a clock that went backwards makes nothing,
  * and a short break just carries on. Meanwhile the studio worked at a third of its speed, and nobody collected:
  * - a mix that finished in the bowl goes into your purse (it was your doing);
- * - Tidy characters picked up to 60 drops an hour each: that's the "While you were away" card;
+ * - Tidy characters picked up to 120 drops an hour each, in the order things were made: that's the card;
  * - everything else is returned as `ground`, to lie on the island for you (as much as fits).
  */
 export function comeBack(s: StudioState, now: number): { state: StudioState; seconds: number; ground: Yield[] } {
@@ -134,7 +144,7 @@ export function comeBack(s: StudioState, now: number): { state: StudioState; sec
   const bowl = bowlOf(s)?.id ?? 'bowl';
   let purse = state.purse;
   for (const y of yields.filter((y) => y.from === bowl)) purse = addTo(purse, y.what, y.amount);
-  const made = yields.filter((y) => y.from !== bowl);
+  const made = takeTurns(yields.filter((y) => y.from !== bowl));
   const tidy = s.characters.filter((c) => hasTrait(s, c.id, 'tidy')).length;
   const picked = Math.floor((tidy * TIDY_AWAY * seconds) / 3600);
   let away: Purse = s.away ? { clay: s.away.clay, paint: { ...s.away.paint } } : emptyPurse();

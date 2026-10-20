@@ -89,6 +89,28 @@ describe('coming back', () => {
     expect(long.ground.length).toBeLessThanOrEqual(MAX_GROUND);
   });
 
+  test('one Tidy character keeps up with about two ordinary ghosts while you are away', () => {
+    const base = start('curious');
+    const [a] = base.characters;
+    const two = { ...base, characters: [a, { ...a, id: 'b2' }], traits: { [a.id]: ['tidy' as const] } };
+    const back = comeBack(two, 3600 * 1000);
+    const made = total(advance(two, 3600, AWAY_SPEED).yields);
+    expect(back.state.away!.clay).toBe(made);
+    expect(back.ground).toHaveLength(0);
+  });
+
+  test('Tidy collects paint from the wells too, not only clay', () => {
+    const base = buyWell({ ...start('bouncy'), purse: { clay: 100, paint: {} } })!;
+    const [a] = base.characters;
+    const busy = {
+      ...base,
+      characters: [a, ...['b', 'c', 'd'].map((id) => ({ ...a, id, personality: 'bouncy' as const }))],
+      traits: { [a.id]: ['tidy' as const] },
+    };
+    const back = comeBack(busy, 4 * 3600 * 1000).state; // more made than Tidy can carry
+    expect(Object.values(back.away!.paint).reduce((n, k) => n + k, 0)).toBeGreaterThan(0);
+  });
+
   test('a clock that went backwards makes nothing, and a short break just carries on', () => {
     const s = { ...start(), lastSeen: 10_000_000 };
     expect(comeBack(s, 5_000_000).ground).toEqual([]);
