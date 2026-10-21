@@ -135,6 +135,13 @@ export function placeAtEdge(layout: IslandLayout, kind: DecorKind): Decor | null
   return null;
 }
 
+/** An edge item (the harbour) moved out to the edge of the island as it is now, at the same spot round it. */
+export function toEdge(layout: IslandLayout, item: Decor): Decor {
+  const r = layout.radius - footprint(item) - EDGE - 0.01;
+  const a = Math.atan2(item.x, item.z);
+  return { ...item, x: round2(Math.sin(a) * r), z: round2(Math.cos(a) * r) };
+}
+
 /**
  * The free spot closest to (x, z) for this item: (x, z) itself if it's free, otherwise the nearest place it fits,
  * searching outward in rings. Null if it fits nowhere on the island.

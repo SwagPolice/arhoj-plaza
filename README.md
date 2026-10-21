@@ -12,6 +12,7 @@ Two ways to play, chosen on the start screen (⇄ switches any time):
   Then a balloon merchant starts visiting with decorations and a broom (it makes a character Tidy: they pick up drops),
   and a harbour sends crews on expeditions (30 min to 2 h) that come back with finds, including driftwood and coral.
   Decorations you buy or find go into storage first; Arrange puts them out (and away again, wells and the bowl too).
+  The island grows in four steps (150, 400, 900 and 2000 clay), from radius 5 to 11.
   The pace is calm: at most 30 drops lie around, and while you're away (up to 8 hours) the studio works at a third
   of its speed and only Tidy characters collect; the rest waits on the island for you.
 

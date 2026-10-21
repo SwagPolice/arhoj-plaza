@@ -5,7 +5,7 @@
  */
 import type { CharacterRecipe, Personality } from '../character/recipe';
 import { defaultLayer } from '../character/recipe';
-import { placeNew } from '../scene/layout';
+import { placeNew, toEdge } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, mixResult } from './mixing';
@@ -29,6 +29,26 @@ export const TIDY_AWAY = 120; // drops a Tidy character picks up per hour while 
 export const MIX_TIME = 5; // seconds the bowl stirs
 export const MIX_MAKES = 2; // drops of the new colour from one mix
 export const BOWL_COST = 40;
+
+/** The Studio island's sizes (radius), and what each next one costs. */
+export const ISLAND_SIZES = [5, 6, 7.5, 9, 11];
+export const ISLAND_COSTS = [150, 400, 900, 2000];
+/** Which size the island is at (worked out from its radius, so saves need nothing new). */
+export const islandStep = (s: StudioState) => {
+  const i = ISLAND_SIZES.findIndex((r) => r >= s.island.radius - 1e-6);
+  return i < 0 ? ISLAND_SIZES.length - 1 : i;
+};
+/** The cost of the next size, or null once it's as big as it gets. */
+export const islandCost = (s: StudioState): number | null => ISLAND_COSTS[islandStep(s)] ?? null;
+
+/** Make the island a size bigger. Everything stays put, except the harbour, which moves out to the new edge. */
+export function growIsland(s: StudioState): StudioState | null {
+  const cost = islandCost(s);
+  if (cost === null || s.purse.clay < cost) return null;
+  const bigger = { ...s.island, radius: ISLAND_SIZES[islandStep(s) + 1] };
+  bigger.items = bigger.items.map((d) => (d.kind === 'harbour' ? toEdge(bigger, d) : d));
+  return { ...s, purse: { ...s.purse, clay: s.purse.clay - cost }, island: bigger };
+}
 
 /** Each new ghost costs half as much again as the last (10, 15, 23, 34, 51…), so the studio grows slowly. */
 export const ghostCost = (s: StudioState) => Math.round(10 * 1.5 ** (s.ghostsMade - 1));
@@ -279,6 +299,11 @@ export function nextGoal(s: StudioState): string {
   const found = MIXABLE.filter((c) => s.discovered.includes(c)).length;
   if (found < MIXABLE.length && paints >= 2) return `Next: mix a new colour (${found} of ${MIXABLE.length} found)`;
   if (bare && paints) return 'Next: tap a ghost and dip it in paint';
+  // Once the island is getting full of characters, room comes before more of them.
+  const grow = islandCost(s);
+  if (grow !== null && s.characters.length >= 4) {
+    return s.purse.clay >= grow ? 'Next: make the island bigger!' : `Next: Bigger island, ${more(grow - s.purse.clay)}`;
+  }
   const cost = ghostCost(s);
   return s.purse.clay >= cost ? 'Next: make a new ghost!' : `Next: another ghost, ${more(cost - s.purse.clay)}`;
 }

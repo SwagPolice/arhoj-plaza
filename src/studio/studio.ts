@@ -11,7 +11,7 @@ import { openDialog, row } from '../ui/share-dialogs';
 import { walkTo, type Agent } from '../plaza/behaviour';
 import { Decorator } from '../plaza/decorate';
 import {
-  addTo, advance, BOWL_COST, bowlOf, buyBowl, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
+  addTo, advance, BOWL_COST, bowlOf, buyBowl, growIsland, islandCost, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
   nextGoal, startMix, wellCost, type Mixed, type Yield,
 } from './economy';
 import { colourName, mixResult, recipeFor } from './mixing';
@@ -56,6 +56,8 @@ export class Studio extends IslandView {
   private wellBtn = button('', 'btn', () => this.buildWell());
   private bowlBtn = button('', 'btn', () => this.buildBowl());
   private harbourBtn = button('', 'btn', () => this.buildHarbour());
+  private islandBtn = button('', 'btn', () => this.biggerIsland());
+  private cameraEase: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null = null;
   private arrangeBtn = button('Arrange', 'btn', () => this.setArranging(true));
   private harbourView = new HarbourView();
   private harbourDialog: HTMLDialogElement | null = null;
@@ -123,7 +125,7 @@ export class Studio extends IslandView {
         },
       },
     );
-    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.arrangeBtn);
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.islandBtn, this.arrangeBtn);
     this.card.style.display = 'none';
     const purse = el('div', 'hud-purse');
     const paintWrap = el('div', 'hud-paint-wrap');
@@ -209,6 +211,12 @@ export class Studio extends IslandView {
 
   protected onUpdate(dt: number, t: number) {
     this.decorator.update(dt, this.w, this.h);
+    if (this.cameraEase) {
+      const e = this.cameraEase;
+      e.t = Math.min(1, e.t + dt / 1.2);
+      this.camera.position.lerpVectors(e.from, e.to, e.t * e.t * (3 - 2 * e.t));
+      if (e.t >= 1) this.cameraEase = null;
+    }
     this.merchant.update(dt, t, this.camera);
     const harbour = harbourOf(this.state);
     const trip = this.state.harbour.trip;
@@ -790,6 +798,27 @@ export class Studio extends IslandView {
       });
   }
 
+  /** A size bigger: everything stays put (the harbour moves out to the new edge), and the camera eases back. */
+  private biggerIsland() {
+    const cost = islandCost(this.state);
+    if (cost === null) return;
+    if (this.state.purse.clay < cost) return this.toast(`A bigger island needs ${cost} clay. Keep collecting!`);
+    const next = growIsland(this.state);
+    if (!next) return;
+    this.state = next;
+    this.applyLayout(next.island);
+    const from = this.camera.position.clone();
+    this.resize(this.w, this.h); // frames the new size (and finds the merchant a new spot)
+    this.cameraEase = { from, to: this.camera.position.clone(), t: 0 };
+    this.camera.position.copy(from);
+    this.returnToIsland();
+    const agent = this.agents.at(0);
+    if (agent) this.say(agent, '🎉', 0.3);
+    this.toast('The island grew! More room to wander.');
+    this.persist();
+    this.render();
+  }
+
   private buildHarbour() {
     if (this.state.purse.clay < HARBOUR_COST) return this.toast(`The harbour needs ${HARBOUR_COST} clay. Keep collecting!`);
     const next = buyHarbour(this.state);
@@ -1108,6 +1137,10 @@ export class Studio extends IslandView {
     this.bowlBtn.classList.toggle('off', s.purse.clay < BOWL_COST);
     this.arrangeBtn.style.display = s.island.items.length || s.storage.length ? '' : 'none';
     this.arrangeBtn.textContent = s.storage.length ? `Arrange · ${s.storage.length} stored` : 'Arrange';
+    const grow = islandCost(s);
+    if (grow !== null) priced(this.islandBtn, 'Bigger island', grow);
+    this.islandBtn.style.display = s.wellsBuilt && grow !== null ? '' : 'none';
+    this.islandBtn.classList.toggle('off', grow === null || s.purse.clay < grow);
     priced(this.harbourBtn, 'Harbour', HARBOUR_COST);
     this.harbourBtn.style.display = harbourUnlocked(s) && !harbourOf(s) ? '' : 'none';
     this.harbourBtn.classList.toggle('off', s.purse.clay < HARBOUR_COST);
