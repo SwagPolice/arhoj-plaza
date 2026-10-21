@@ -173,6 +173,9 @@ body {
   box-shadow: var(--shadow);
 }
 .decor-tool { font-size: 16px; padding: 4px 10px; border-radius: 10px; line-height: 1.2; }
+.decor-tools { flex-wrap: wrap; max-width: min(92vw, 420px); justify-content: center; }
+.decor-dye { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.decor-swatch { padding: 4px 8px; font-size: 13px; }
 .decor-tools-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 4px; }
 .decor-tools input[type='range'] { width: 110px; accent-color: var(--ink); }
 
@@ -275,6 +278,14 @@ body {
 .decor-storage { align-items: center; }
 .decor-storage .btn { flex: 0 0 auto; }
 .decor-storage-label { font-weight: 600; font-size: 14px; margin-right: 4px; }
+.hud-book { border: 0; font: inherit; cursor: pointer; }
+.book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }
+.book-page { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; }
+.book-swatch { width: 46px; height: 46px; border-radius: 50%; box-shadow: inset 0 -6px 10px rgba(0, 0, 0, 0.12), inset 0 4px 8px rgba(255, 255, 255, 0.45); }
+.book-page.missing .book-swatch { border: 2px dashed #cbbfae; box-shadow: none; display: flex; align-items: center; justify-content: center; color: #b3a893; font-weight: 700; }
+.book-swatch.lustre { outline: 2px solid rgba(201, 160, 80, 0.5); outline-offset: 2px; }
+.book-name { font-size: 13px; font-weight: 600; }
+.book-source { font-size: 11px; line-height: 1.2; }
 .chip.off { opacity: 0.45; }
 .harbour-hint { font-size: 14px; margin: 10px 0 4px; }
 .card-trait { font-size: 14px; margin-top: 4px; }

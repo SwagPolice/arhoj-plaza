@@ -48,7 +48,7 @@ export abstract class IslandView implements Mode {
     this.hemi = addLights(this.scene, 13, new THREE.Vector3(6, 12, 8)).hemi;
 
     this.layout = layout;
-    this.island = buildIsland(layout, this.wellTints(), this.withFlowers);
+    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor);
     this.scene.add(this.island.group);
     this.world = this.island.world;
 
@@ -98,6 +98,10 @@ export abstract class IslandView implements Mode {
   /** Scattered flowers on the grass (off in Studio Mode, where they'd look like drops). */
   protected get withFlowers() {
     return true;
+  }
+  /** Undyed decorations as white bisque (Studio Mode), instead of their usual colours. */
+  protected get plainDecor() {
+    return false;
   }
   /** Colours for glaze wells' water, by well id (Studio Mode). */
   protected wellTints(): Record<string, string> {
@@ -187,7 +191,7 @@ export abstract class IslandView implements Mode {
     this.layout = layout;
     this.scene.remove(this.island.group);
     disposeObject(this.island.group);
-    this.island = buildIsland(layout, this.wellTints(), this.withFlowers);
+    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor);
     this.scene.add(this.island.group);
     this.world = this.island.world;
     this.fitToIsland();

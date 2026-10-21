@@ -29,7 +29,7 @@ describe('mixing recipes', () => {
     for (let round = 0; round < 3; round++)
       for (const [a, b, c] of RECIPES) if (have.has(a) && have.has(b)) have.add(c);
     for (const c of MIXABLE) expect(have).toContain(c);
-    expect(MIXABLE).toHaveLength(7);
+    expect(MIXABLE).toHaveLength(8); // black (plum + green) needs no white
   });
 
   test('colours have names', () => {

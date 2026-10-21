@@ -33,8 +33,19 @@ export type DecorStorage = {
   put(id: string): boolean;
 };
 
+/** Dyeing decorations with paint you own (Studio Mode). The host spends the paint and commits the layout. */
+export type DecorDye = {
+  canDye(kind: DecorKind): boolean;
+  /** Paints you can dye with: colour, name, how many you have. */
+  paints(): { colour: string; name: string; n: number }[];
+  /** Dye it (null: back to white); false if it can't be done. */
+  dye(id: string, colour: string | null): boolean;
+};
+
 /** Which tools to offer. Creative has everything; the Studio only arranges what it bought. */
 export type DecorateOptions = {
+  /** With dyeing: a 🎨 Dye tool with a swatch for each paint you own. */
+  dye?: DecorDye;
   /** With storage: a Storage row to bring things out, and a Put away tool. */
   storage?: DecorStorage;
   /** The island size slider, the add buttons, removing, and share / import / reset. */
@@ -66,11 +77,16 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'seaglass', label: '💎 Sea glass' },
   { kind: 'driftwood', label: '🪵 Driftwood' },
   { kind: 'coral', label: '🪸 Coral' },
+  { kind: 'vase', label: '🏺 Vase' },
+  { kind: 'mosaic', label: '🔲 Mosaic' },
+  { kind: 'totem', label: '🍡 Bowls' },
+  { kind: 'rainbow', label: '🌈 Rainbow pot' },
 ];
 const ICONS: Record<DecorKind, string> = {
-  tree: '🌲', pond: '💧', rock: '🪨', mushroom: '🍄', well: '⛲', bowl: '🥣', shell: '🐚', seaglass: '💎', harbour: '⚓', driftwood: '🪵', coral: '🪸',
+  tree: '🌲', pond: '💧', rock: '🪨', mushroom: '🍄', well: '⛲', bowl: '🥣', shell: '🐚', seaglass: '💎', harbour: '⚓', driftwood: '🪵', coral: '🪸', vase: '🏺', mosaic: '🔲', totem: '🍡', rainbow: '🌈',
 };
 const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass', harbour: 'harbour', driftwood: 'driftwood', coral: 'coral',
+  vase: 'glazed vase', mosaic: 'tile mosaic', totem: 'stack of bowls', rainbow: 'rainbow pot',
 };
 type Look = 'selected' | 'invalid' | null;
 const RED = new THREE.Color('#e0452f');
@@ -91,6 +107,9 @@ export class Decorator {
   private turnButtons: HTMLButtonElement[] = [];
   private storageRow = el('div', 'decor-row decor-add decor-storage');
   private storage: DecorStorage | undefined;
+  private dyeHost: DecorDye | undefined;
+  private dyeButton: HTMLButtonElement | null = null;
+  private dyeRow = el('div', 'decor-dye');
   private selected: string | null = null;
   private drag: Drag | null = null;
   /** An object sliding to where it ends up; `then` runs when it gets there. */
@@ -109,6 +128,7 @@ export class Decorator {
 
   constructor(private host: DecorateHost, options: DecorateOptions = CREATIVE) {
     this.storage = options.storage;
+    this.dyeHost = options.dye;
     this.size.type = 'range';
     this.size.min = String(ISLAND_SIZE.min);
     this.size.max = String(ISLAND_SIZE.max);
@@ -155,6 +175,15 @@ export class Decorator {
       ...(options.full ? [tool('✕', 'Remove', () => this.removeSelected())] : []),
       ...(options.storage ? [tool('📦', 'Put away', () => this.putAwaySelected())] : []),
     );
+    if (options.dye) {
+      this.dyeButton = tool('🎨', 'Dye', () => {
+        this.dyeRow.style.display = this.dyeRow.style.display === 'none' ? '' : 'none';
+        this.drawDye();
+      });
+      this.tools.insertBefore(this.dyeButton, this.tools.lastChild);
+      this.dyeRow.style.display = 'none';
+      this.tools.append(this.dyeRow);
+    }
 
     if (!options.full) endRow.replaceChildren(el('span', 'decor-spacer'), button('Done', 'btn primary', () => this.host.done()));
     const tip = el('div', 'muted decor-tip', options.tip);
@@ -277,6 +306,31 @@ export class Decorator {
     );
   }
 
+  /** The dye swatches: white bisque (free), then each paint you own, with how many you have. */
+  private drawDye() {
+    const host = this.dyeHost;
+    if (!host) return;
+    const item = this.item(this.selected);
+    const swatch = (colour: string | null, label: string, title: string) => {
+      const b = button('', 'chip decor-swatch' + ((item?.colour ?? null) === colour ? ' on' : ''), () => {
+        if (!this.selected) return;
+        const id = this.selected;
+        if (!host.dye(id, colour)) return this.say(colour ? 'You need that paint to dye with it.' : 'It is white already.');
+        this.select(id);
+        this.drawDye();
+      });
+      const dot = el('span', 'swatch-dot');
+      dot.style.background = colour ?? '#f3efe7';
+      b.append(dot, label);
+      b.title = title;
+      return b;
+    };
+    this.dyeRow.replaceChildren(
+      swatch(null, 'White', 'Back to white bisque (free)'),
+      ...host.paints().map((p) => swatch(p.colour, `${p.n}`, `Dye it ${p.name} (1 paint)`)),
+    );
+  }
+
   private putAwaySelected() {
     if (!this.selected || !this.storage) return;
     const id = this.selected;
@@ -371,6 +425,8 @@ export class Decorator {
     this.selected = id;
     if (id) tint(this.host.island().decor.get(id), 'selected');
     const item = this.item(id);
+    if (this.dyeButton) this.dyeButton.style.display = item && this.dyeHost?.canDye(item.kind) ? '' : 'none';
+    if (this.dyeRow.style.display !== 'none') this.drawDye();
     if (item) {
       // Turning only shows up for things that aren't round from above.
       for (const b of this.turnButtons) b.style.display = canTurn(item.kind) ? '' : 'none';

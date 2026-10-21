@@ -18,8 +18,10 @@ export type BuiltIsland = {
  * A round glazed-ceramic island floating on pale water, decorated as the layout says.
  * `tints` colours a glaze well's water by its id (Studio Mode: the last colour it made).
  * `flowers: false` leaves out the scattered flowers (Studio Mode, where they'd look like paint drops).
+ * `plain`: decorations nobody has dyed yet are white bisque (Studio Mode); otherwise they have their usual colours.
  */
-export function buildIsland(layout: IslandLayout, tints: Record<string, string> = {}, flowers = true): BuiltIsland {
+export function buildIsland(layout: IslandLayout, tints: Record<string, string> = {}, flowers = true, plain = false): BuiltIsland {
+  bisque = plain;
   const rand = mulberry32(7);
   const R = layout.radius;
   const group = new THREE.Group();
@@ -62,6 +64,10 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'harbour' ? makeHarbour()
       : d.kind === 'driftwood' ? makeDriftwood(d)
       : d.kind === 'coral' ? makeCoral(d)
+      : d.kind === 'vase' ? makeVase(d)
+      : d.kind === 'mosaic' ? makeMosaic(d)
+      : d.kind === 'totem' ? makeTotem(d)
+      : d.kind === 'rainbow' ? makeRainbow(d)
       : makeMushroom(d);
     obj.position.set(d.x, 0, d.z);
     obj.rotation.y = d.rot;
@@ -103,12 +109,19 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
 
 // Each decoration is built around its own origin, so it can be moved as one piece.
 
+const BISQUE = '#f3efe7'; // undyed white bisque
+let bisque = false; // set for each island build
+/** The colour of a decoration's main glazed part: what it was dyed, else white bisque in the Studio, else its usual. */
+const main = (d: Decor, usual: string) => d.colour ?? (bisque ? BISQUE : usual);
+/** A slightly deeper shade of the main colour, for a second part (a shell's hinge). */
+const deeper = (hex: string) => '#' + new THREE.Color(hex).multiplyScalar(0.9).getHexString();
+
 /** Ceramic tree: the same lathe trick as the characters. */
 function makeTree(d: Decor, index: number) {
   const s = d.size;
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1 * s, 0.14 * s, 0.45 * s, 12), glaze('#a98462', { roughness: 0.6 }));
   trunk.position.y = 0.22 * s;
-  const foliage = new THREE.Mesh(latheFrom(TREE).geo, glaze(GREENS[index % GREENS.length]));
+  const foliage = new THREE.Mesh(latheFrom(TREE).geo, glaze(main(d, GREENS[index % GREENS.length])));
   foliage.scale.set(s * 0.95, s * 1.5, s * 0.95);
   foliage.position.y = 0.35 * s;
   return new THREE.Group().add(trunk, foliage);
@@ -133,7 +146,7 @@ function makePond(d: Decor) {
 }
 
 function makeRock(d: Decor) {
-  const rock = new THREE.Mesh(new THREE.SphereGeometry(d.size, 20, 14), glaze('#d8d2c4', { roughness: 0.5 }));
+  const rock = new THREE.Mesh(new THREE.SphereGeometry(d.size, 20, 14), glaze(main(d, '#d8d2c4'), { roughness: 0.5 }));
   rock.scale.set(1, 0.55, 0.85);
   rock.position.y = d.size * 0.2;
   return new THREE.Group().add(rock);
@@ -142,7 +155,7 @@ function makeRock(d: Decor) {
 function makeMushroom(d: Decor) {
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.12, 10), glaze('#f6efe2'));
   stem.position.y = 0.06;
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), glaze('#ec8a6a'));
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), glaze(main(d, '#ec8a6a')));
   cap.scale.y = 0.8;
   cap.position.y = 0.11;
   const g = new THREE.Group().add(stem, cap);
@@ -154,7 +167,7 @@ const WELL: Pt[] = [[0, 0], [0.4, 0], [0.52, 0.04], [0.6, 0.22], [0.62, 0.4], [0
 
 /** Glaze well (Studio Mode): a cream basin, its water the colour it last made. */
 function makeWell(d: Decor, tint = '#9fd0ee') {
-  const basin = new THREE.Mesh(latheFrom(WELL).geo, glaze('#efe5d0'));
+  const basin = new THREE.Mesh(latheFrom(WELL).geo, glaze(d.colour ?? '#efe5d0'));
   const water = new THREE.Mesh(new THREE.CircleGeometry(0.47, 40), glaze(tint, { roughness: 0.05 }));
   water.rotation.x = -Math.PI / 2;
   water.position.y = 0.36;
@@ -170,7 +183,7 @@ const BOWL: Pt[] = [[0, 0], [0.22, 0], [0.3, 0.03], [0.46, 0.14], [0.56, 0.3], [
  * that the Studio colours and turns while it stirs; hidden while the bowl is empty.
  */
 function makeBowl(d: Decor) {
-  const bowl = new THREE.Mesh(latheFrom(BOWL).geo, glaze('#f7f4ee'));
+  const bowl = new THREE.Mesh(latheFrom(BOWL).geo, glaze(d.colour ?? '#f7f4ee'));
   const halves = [0, Math.PI].map((start) => {
     const half = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32, start, Math.PI), glaze('#ffffff', { roughness: 0.05 }));
     half.rotation.x = -Math.PI / 2;
@@ -186,7 +199,8 @@ function makeBowl(d: Decor) {
 /** A scallop shell lying on the grass: a fan of ribs in a pale blush glaze, hinged at the back. */
 function makeShell(d: Decor) {
   const g = new THREE.Group();
-  const mat = glaze('#f3d5c8', { roughness: 0.4 });
+  const colour = main(d, '#f3d5c8');
+  const mat = glaze(colour, { roughness: 0.4 });
   const ribs = 9;
   for (let i = 0; i < ribs; i++) {
     const a = -1.05 + (i / (ribs - 1)) * 2.1; // spread of the fan
@@ -195,7 +209,7 @@ function makeShell(d: Decor) {
     rib.position.set(Math.sin(a) * 0.12, 0.045, -0.06 + Math.cos(a) * 0.12);
     g.add(rib);
   }
-  const hinge = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), glaze('#e8bfae', { roughness: 0.4 }));
+  const hinge = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), glaze(deeper(colour), { roughness: 0.4 }));
   hinge.scale.set(1.4, 0.7, 0.8);
   hinge.position.set(0, 0.03, -0.07);
   g.add(hinge);
@@ -207,7 +221,7 @@ function makeShell(d: Decor) {
 function makeSeaGlass(d: Decor) {
   const pebble = new THREE.Mesh(
     new THREE.SphereGeometry(0.13, 20, 14),
-    new THREE.MeshPhysicalMaterial({ color: '#9fd8c4', transmission: 0.85, thickness: 0.2, roughness: 0.55, ior: 1.5 }),
+    new THREE.MeshPhysicalMaterial({ color: main(d, '#9fd8c4'), transmission: 0.85, thickness: 0.2, roughness: 0.55, ior: 1.5 }),
   );
   pebble.scale.set(1.25, 0.45, 0.9);
   pebble.position.y = 0.05;
@@ -270,7 +284,7 @@ function makeHarbour() {
 
 /** A piece of driftwood: a pale, weathered log with a stub of a branch. */
 function makeDriftwood(d: Decor) {
-  const wood = glaze('#d9cdb8', { roughness: 0.75, clearcoat: 0 });
+  const wood = glaze(main(d, '#d9cdb8'), { roughness: 0.75, clearcoat: 0 });
   const log = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.42, 4, 10), wood);
   log.rotation.z = Math.PI / 2;
   log.position.y = 0.06;
@@ -285,7 +299,7 @@ function makeDriftwood(d: Decor) {
 /** A small branching coral in a coral-pink glaze. */
 function makeCoral(d: Decor) {
   const g = new THREE.Group();
-  const mat = glaze('#ec8a6a', { roughness: 0.45 });
+  const mat = glaze(main(d, '#ec8a6a'), { roughness: 0.45 });
   const branch = (x: number, z: number, tilt: number, turn: number, len: number) => {
     const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, len, 4, 8), mat);
     b.position.set(x, len / 2 + 0.02, z);
@@ -301,6 +315,68 @@ function makeCoral(d: Decor) {
   return g;
 }
 
+const VASE: Pt[] = [[0, 0], [0.12, 0], [0.16, 0.04], [0.22, 0.2], [0.23, 0.34], [0.17, 0.5], [0.11, 0.6], [0.13, 0.68], [0.11, 0.7], [0.08, 0.62], [0, 0.6]];
+
+/** Palette book reward: a tall glazed vase (cobalt, unless dyed), with a cream lip. */
+function makeVase(d: Decor) {
+  const body = new THREE.Mesh(latheFrom(VASE).geo, glaze(d.colour ?? '#2f55b5'));
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.018, 8, 24), glaze('#f6efe2'));
+  lip.rotation.x = Math.PI / 2;
+  lip.position.y = 0.685;
+  const g = new THREE.Group().add(body, lip);
+  g.scale.setScalar(d.size);
+  return g;
+}
+
+/** Palette book reward: a little tile mosaic set into the grass, in many glazes. */
+function makeMosaic(d: Decor) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.03, 0.74), glaze('#efe5d0', { roughness: 0.7, clearcoat: 0 }));
+  base.position.y = 0.015;
+  g.add(base);
+  const colours = ['#d8382f', '#f2c230', '#2f55b5', '#f08a24', '#1f8a55', '#7a4a7c', '#9fd0ee', '#f2b8ae', '#a9e0c8'];
+  for (let i = 0; i < 9; i++) {
+    const tile = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.03, 0.2), glaze(colours[(i * 4) % 9]));
+    tile.position.set(((i % 3) - 1) * 0.23, 0.04, (Math.floor(i / 3) - 1) * 0.23);
+    g.add(tile);
+  }
+  g.scale.setScalar(d.size);
+  return g;
+}
+
+/** Palette book reward: three glazed bowls stacked up, each a different colour (or all one, if dyed). */
+function makeTotem(d: Decor) {
+  const g = new THREE.Group();
+  const colours = d.colour ? [d.colour, d.colour, d.colour] : ['#f2c230', '#2f55b5', '#d8382f'];
+  // Upturned bowls, each resting on the one below.
+  let y = 0;
+  [0.3, 0.24, 0.18].forEach((r, i) => {
+    const bowl = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glaze(colours[i]));
+    bowl.scale.y = 0.8;
+    bowl.position.y = y;
+    y += r * 0.72;
+    g.add(bowl);
+  });
+  g.scale.setScalar(d.size);
+  return g;
+}
+
+/** The full palette book's reward: a white pot with glaze drips in every colour of the rainbow. */
+function makeRainbow(d: Decor) {
+  const g = new THREE.Group().add(new THREE.Mesh(latheFrom(VASE).geo, glaze('#f7f4ee')));
+  const rainbow = ['#d8382f', '#f08a24', '#f2c230', '#1f8a55', '#2f55b5', '#7a4a7c'];
+  // Drips down from the shoulder all round, two of each colour, of different lengths.
+  for (let i = 0; i < 12; i++) {
+    const len = 0.1 + ((i * 7) % 5) * 0.035;
+    const drip = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, len, 4, 8), glaze(rainbow[i % rainbow.length]));
+    const a = (i / 12) * Math.PI * 2;
+    drip.position.set(Math.sin(a) * 0.225, 0.4 - len / 2, Math.cos(a) * 0.225);
+    g.add(drip);
+  }
+  g.scale.setScalar(d.size);
+  return g;
+}
+
 /** Height of a decoration's top, for placing the Remove button above it. */
 export function decorHeight(d: Decor) {
   if (d.kind === 'tree') return 1.95 * d.size;
@@ -313,5 +389,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'harbour') return 0.3;
   if (d.kind === 'driftwood') return 0.3 * d.size;
   if (d.kind === 'coral') return 0.55 * d.size;
+  if (d.kind === 'mosaic') return 0.1 * d.size;
+  if (d.kind === 'vase' || d.kind === 'totem' || d.kind === 'rainbow') return 0.8 * d.size;
   return 0.3 * d.size;
 }

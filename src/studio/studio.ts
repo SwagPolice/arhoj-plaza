@@ -14,11 +14,12 @@ import {
   addTo, advance, BOWL_COST, bowlOf, buyBowl, growIsland, islandCost, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
   nextGoal, startMix, wellCost, type Mixed, type Yield,
 } from './economy';
-import { colourName, mixResult, recipeFor } from './mixing';
+import { colourName, mixResult } from './mixing';
+import { foundCount, noteFound, PAGES, REWARDS, source } from './book';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
 import { buyItem, canAfford, giveClay, hasTrait, nextStep, soldOut, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
 import { MerchantBalloon } from './merchant-view';
-import { putAway, stored, takeOut } from './storage';
+import { canDye, dye, putAway, stored, takeOut } from './storage';
 import {
   atSea, BIG_BOAT_COST, buyBigBoat, buyHarbour, collectHaul, crewLimit, destination, DESTINATIONS, findsFor, HARBOUR_COST, harbourOf,
   harbourUnlocked, isOpen, setSail,
@@ -104,7 +105,22 @@ export class Studio extends IslandView {
       },
       {
         full: false,
-        tip: 'Drag things to move them · tap one to turn, resize or put it away',
+        tip: 'Drag things to move them · tap one to turn, resize, dye or put it away',
+        dye: {
+          canDye,
+          paints: () =>
+            Object.entries(this.state.purse.paint)
+              .filter(([, n]) => n > 0)
+              .map(([colour, n]) => ({ colour, name: colourName(colour), n })),
+          dye: (id, colour) => {
+            const next = dye(this.state, id, colour);
+            if (!next) return false;
+            this.state = { ...this.state, purse: next.purse };
+            this.applyLayout(next.island); // saves the island, and the purse with it
+            this.render();
+            return true;
+          },
+        },
         storage: {
           list: () => stored(this.state),
           take: (kind) => {
@@ -131,7 +147,9 @@ export class Studio extends IslandView {
     const purse = el('div', 'hud-purse');
     const paintWrap = el('div', 'hud-paint-wrap');
     paintWrap.append(this.paintChip, this.paintList);
-    purse.append(this.clayChip, paintWrap);
+    const bookBtn = button('📖', 'hud-chip hud-book', () => this.openBook());
+    bookBtn.title = 'Palette book';
+    purse.append(this.clayChip, paintWrap, bookBtn);
     this.hud.append(purse, this.goal);
     // The paint list opens on hover with a mouse, and on tap on touch screens.
     this.paintChip.type = 'button';
@@ -191,6 +209,10 @@ export class Studio extends IslandView {
 
   protected get withFlowers() {
     return false; // they'd look like paint drops
+  }
+
+  protected get plainDecor() {
+    return true; // white bisque, until you dye them
   }
 
   protected wellTints() {
@@ -594,21 +616,17 @@ export class Studio extends IslandView {
       mixBtn.classList.toggle('off', picked.length < 2);
     };
     draw();
-    const found = el('div', 'mix-found');
-    for (const c of this.state.discovered) {
-      const r = recipeFor(c);
-      if (!r) continue;
-      const line = el('div', 'mix-recipe');
-      line.append(dotOf(r[0]), dotOf(r[1]), ' → ', dotOf(c), Name(c));
-      found.append(line);
-    }
+    const book = button(`📖 Palette book · ${foundCount(this.state)} of ${PAGES.length} found`, 'btn', () => {
+      dialog.close();
+      this.openBook();
+    });
     const dialog = openDialog('Mixing bowl', [
       el('p', 'muted', 'Two paints in, a new colour out. Not every pair makes something; if not, you get your paints back.'),
       slots,
       makes,
       chips,
       row(mixBtn),
-      ...(found.children.length ? [el('div', 'sub mix-found-title', "Colours you've mixed"), found] : []),
+      row(book),
     ]);
   }
 
@@ -977,6 +995,29 @@ export class Studio extends IslandView {
     return names.length < 2 ? (names[0] ?? 'nobody') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
   }
 
+  // ---------- the palette book ----------
+
+  /** Every glaze colour and lustre: found ones with their recipe or source, the rest as empty slots. */
+  private openBook() {
+    const s = this.state;
+    const grid = el('div', 'book-grid');
+    for (const p of PAGES) {
+      const found = s.book.found.includes(p.hex);
+      const page = el('div', 'book-page' + (found ? '' : ' missing'));
+      const sw = el('div', 'book-swatch' + (p.lustre ? ' lustre' : ''));
+      if (found) sw.style.background = p.hex;
+      else sw.textContent = '?';
+      page.append(sw, el('div', 'book-name', found ? p.name : '…'), el('div', 'muted book-source', found || p.lustre ? source(p) : ''));
+      grid.append(page);
+    }
+    const count = foundCount(s);
+    const next = REWARDS[s.book.rewards];
+    openDialog('Palette book', [
+      el('p', 'muted', `${count} of ${PAGES.length} colours found.` + (next ? ` At ${next.at}: ${next.name}.` : ' The book is complete!')),
+      grid,
+    ]);
+  }
+
   // ---------- shooting stars ----------
 
   /** A star streaks across the sky (its shards are already on their way down). */
@@ -1147,6 +1188,10 @@ export class Studio extends IslandView {
   // ---------- HUD ----------
 
   private render() {
+    // Colours you now own count in the palette book; a new milestone brings a decoration into storage.
+    const book = noteFound(this.state);
+    this.state = book.state;
+    for (const r of book.rewards) this.toast(`Palette book: ${r.at} colours found! ${r.name[0].toUpperCase()}${r.name.slice(1)} is waiting in your storage.`);
     const s = this.state;
     // Two quiet counters: clay, and all your paint together (hover or tap it for each colour).
     const paints = [...Object.values(PRIMARIES), ...Object.keys(s.purse.paint)]

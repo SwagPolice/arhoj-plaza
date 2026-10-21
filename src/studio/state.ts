@@ -53,7 +53,7 @@ export const newHarbour = (): Harbour => ({ level: 0, trip: null, haul: null, tr
 export type Mood = { comfort: number; lift: number; petted: number };
 
 /** A decoration (or a well or the bowl) put away: off the island, keeping its id, size and turn. */
-export type Stored = { id: string; kind: DecorKind; size: number; rot: number };
+export type Stored = { id: string; kind: DecorKind; size: number; rot: number; colour?: string };
 
 /** Two paints stirring in the mixing bowl, and the seconds left until they're mixed. */
 export type Mix = { a: string; b: string; left: number };
@@ -78,6 +78,7 @@ export type StudioState = {
   mood: Record<string, Mood>; // by character id (added after v1 shipped: missing = neutral)
   friends: Record<string, number>; // friendship 0–1 by pair, 'idA|idB' sorted (added after v1 shipped: missing = none)
   stars: Stars; // the next shooting star (added after v1 shipped: missing = none seen yet)
+  book: { found: string[]; rewards: number }; // the palette book: colours found, rewards handed out (added later: missing = empty)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -112,6 +113,7 @@ export function newStudio(now = Date.now()): StudioState {
     mood: {},
     friends: {},
     stars: newStars(),
+    book: { found: [], rewards: 0 },
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -219,7 +221,9 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     const kind = d.kind as DecorKind;
     if (!(DECOR_KINDS as readonly string[]).includes(kind) || kind === 'harbour') continue; // the harbour stays on its edge
     taken.add(d.id);
-    storage.push({ id: d.id, kind, size: count(d.size, 1) || 1, rot: count(d.rot) });
+    const thing: Stored = { id: d.id, kind, size: count(d.size, 1) || 1, rot: count(d.rot) };
+    if (typeof d.colour === 'string' && isHex(d.colour)) thing.colour = d.colour.toLowerCase();
+    storage.push(thing);
   }
   const unit = (v: unknown) => Math.min(1, count(v));
   const mood: Record<string, Mood> = {};
@@ -233,6 +237,11 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
       const [a, b, extra] = pair.split('|');
       if (extra === undefined && a && b && a < b && ids.has(a) && ids.has(b) && unit(v) > 0) friends[pair] = unit(v);
     }
+  const bk = isObj(o.book) ? o.book : {};
+  const book = {
+    found: Array.isArray(bk.found) ? [...new Set(bk.found.filter((c): c is string => typeof c === 'string' && isHex(c)).map((c) => c.toLowerCase()))] : [],
+    rewards: whole(bk.rewards, 0),
+  };
   const st = isObj(o.stars) ? o.stars : {};
   const stars: Stars = { wait: count(st.wait, FIRST_STAR), seen: whole(st.seen, 0) };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
@@ -257,6 +266,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     mood,
     friends,
     stars,
+    book,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

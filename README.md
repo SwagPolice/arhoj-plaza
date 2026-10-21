@@ -15,6 +15,8 @@ Two ways to play, chosen on the start screen (⇄ switches any time):
   The island grows in four steps (150, 400, 900 and 2000 clay), from radius 5 to 11.
   Shooting stars (the first about 20 minutes after the mixing bowl, then every 3 to 8 hours) bring white paint,
   which opens the pastel mixes.
+  Decorations start as white bisque and can be dyed with any paint (in Arrange). The palette book (📖) collects
+  every glaze colour you find, with a special decoration every 6 colours.
   The pace is calm: at most 30 drops lie around, and while you're away (up to 8 hours) the studio works at a third
   of its speed and only Tidy characters collect; the rest waits on the island for you.
 

@@ -7,14 +7,15 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral'] as const; // well, bowl, harbour: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow'] as const; // well, bowl, harbour: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
  * One decoration. `size` is a scale for trees, mushrooms, shells and sea glass, and a radius for ponds and rocks.
  * `rot` is how far it's turned, in radians (added after version 1 shipped; missing means 0).
+ * `colour` is the glaze its main part was dyed (Studio Mode; added later; missing means its usual look, or white bisque in the Studio).
  */
-export type Decor = { id: string; kind: DecorKind; x: number; z: number; size: number; rot: number };
+export type Decor = { id: string; kind: DecorKind; x: number; z: number; size: number; rot: number; colour?: string };
 export type IslandLayout = { radius: number; items: Decor[] };
 
 export const ISLAND_SIZE = { min: 5, max: 11 };
@@ -33,16 +34,20 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   harbour: { min: 1, max: 1 },
   driftwood: { min: 0.6, max: 1.6 },
   coral: { min: 0.6, max: 1.6 },
+  vase: { min: 0.7, max: 1.4 },
+  mosaic: { min: 0.7, max: 1.4 },
+  totem: { min: 0.7, max: 1.4 },
+  rainbow: { min: 0.7, max: 1.4 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
-export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral'].includes(kind);
+export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow'].includes(kind);
 
 /** The harbour belongs on the island's edge, facing the sea: it stays where it was built. */
 export const canMove = (kind: DecorKind) => kind !== 'harbour';
 
 /** Trees, ponds and rocks block walking and can't overlap each other; little things (mushrooms, shells…) are walk-through. */
-export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral'].includes(kind);
+export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic'].includes(kind);
 
 /** How much ground an object takes up (a circle of this radius). */
 export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
@@ -56,6 +61,8 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'harbour') return 0.55; // the landward end; the pier itself reaches out over the water
   if (d.kind === 'driftwood') return 0.5 * d.size;
   if (d.kind === 'coral') return 0.3 * d.size;
+  if (d.kind === 'mosaic') return 0.5 * d.size;
+  if (d.kind === 'vase' || d.kind === 'totem' || d.kind === 'rainbow') return 0.32 * d.size;
   return 0.15 * d.size;
 }
 
@@ -239,7 +246,9 @@ export function normaliseLayout(raw: unknown): IslandLayout {
     if (dist > max) [x, z] = [round2((x / dist) * Math.max(0, max)), round2((z / dist) * Math.max(0, max))];
     const id = typeof d.id === 'string' && d.id && !items.some((i) => i.id === d.id) ? d.id : newDecorId(kind);
     const rot = typeof d.rot === 'number' && Number.isFinite(d.rot) ? turned(d.rot, 0) : 0;
-    items.push({ id, kind, x, z, size, rot });
+    const item: Decor = { id, kind, x, z, size, rot };
+    if (typeof d.colour === 'string' && /^#[0-9a-f]{6}$/i.test(d.colour)) item.colour = d.colour.toLowerCase();
+    items.push(item);
   }
   return { radius, items };
 }

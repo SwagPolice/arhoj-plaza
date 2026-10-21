@@ -116,6 +116,7 @@ export const ADDED_SINCE_STUDIO_V1 = {
   mood: {},
   friends: {},
   stars: { wait: 1200, seen: 0 },
+  book: { found: [], rewards: 0 },
 };
 
 // An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.
@@ -136,5 +137,26 @@ export const GOLDEN_ISLAND_DRIFT = {
     { id: 'a', kind: 'driftwood' as const, x: 1.5, z: 1.9, size: 1.1, rot: 0.6 },
     { id: 'b', kind: 'coral' as const, x: -1.2, z: 2.2, size: 1.3, rot: 1.9 },
     { id: 'c', kind: 'shell' as const, x: 0.2, z: -1, size: 1, rot: 0 },
+  ],
+};
+
+// An island frozen when decorations could be dyed (2026-10-21, layout v1): a dyed tree and shell, an undyed rock.
+export const GOLDEN_ISLAND_DYED = {
+  radius: 6,
+  items: [
+    { id: 'a', kind: 'tree' as const, x: -2, z: 1, size: 1.1, rot: 0, colour: '#d8382f' },
+    { id: 'b', kind: 'shell' as const, x: 1.5, z: 2, size: 1, rot: 0.7, colour: '#c9b6e4' },
+    { id: 'c', kind: 'rock' as const, x: 2, z: -2, size: 0.4, rot: 1.2 },
+  ],
+};
+
+// An island frozen when the palette book's rewards arrived (2026-10-21, layout v1): all four.
+export const GOLDEN_ISLAND_BOOK = {
+  radius: 7.5,
+  items: [
+    { id: 'a', kind: 'vase' as const, x: -2, z: 1, size: 1.1, rot: 0, colour: '#2f55b5' },
+    { id: 'b', kind: 'mosaic' as const, x: 1, z: 2, size: 1, rot: 0.4 },
+    { id: 'c', kind: 'totem' as const, x: 2.5, z: -1, size: 1.2, rot: 0 },
+    { id: 'd', kind: 'rainbow' as const, x: -1, z: -2.5, size: 1, rot: 1 },
   ],
 };

@@ -16,11 +16,14 @@ export const RECIPES: [string, string, string][] = (
     ['Green', 'Cobalt', 'Teal'],
     ['Orange', 'Cobalt', 'Rust'],
     ['Orange', 'Green', 'Moss'],
+    ['Plum', 'Green', 'Black'], // two deep colours make the darkest
     // White comes later (shooting stars); these wait for it.
     ['Red', 'White', 'Blush'],
     ['Cobalt', 'White', 'Sky'],
     ['Green', 'White', 'Mint'],
     ['Plum', 'White', 'Lilac'],
+    ['Yellow', 'White', 'Cream'],
+    ['Orange', 'White', 'Coral'],
   ] as const
 ).map(([a, b, c]) => [hex(a), hex(b), hex(c)]);
 
