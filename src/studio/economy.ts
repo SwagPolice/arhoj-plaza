@@ -8,10 +8,11 @@ import { defaultLayer } from '../character/recipe';
 import { placeNew, toEdge } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
-import { MIXABLE, mixResult } from './mixing';
+import { MIXABLE, MIXABLE_ALL, mixResult } from './mixing';
 import { hasTrait, LINGER, stepOf, stepVisit } from './merchant';
 import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
 import { BOOST, fadeLifts, happiness } from './happiness';
+import { stepStars, WHITE } from './stars';
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -57,9 +58,9 @@ export const wellCost = (s: StudioState) => (s.wellsBuilt === 0 ? 15 : 60 * 3 **
 
 /**
  * One thing made: by whom (character, well or bowl id), what ('clay' or a paint colour), how much.
- * `back` marks paint the bowl gives back after a mix that made nothing new.
+ * `back` marks paint the bowl gives back after a mix that made nothing new; `star` a shooting star's shard.
  */
-export type Yield = { from: string; what: string; amount: number; back?: boolean };
+export type Yield = { from: string; what: string; amount: number; back?: boolean; star?: boolean };
 
 /** A mix the bowl just finished: the two paints, and what they made (null: nothing new, paints given back). */
 export type Mixed = { a: string; b: string; made: string | null };
@@ -78,7 +79,7 @@ export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null
  */
 export function advance(
   s: StudioState, seconds: number, speed = 1,
-): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean } {
+): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean; stars: number } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
@@ -126,8 +127,10 @@ export function advance(
   const { merchant, visit } = stepVisit(s.merchant, ownsBowl(s), stepOf(s), dt, rand);
   const { state: sailed, home } = stepTrip(s, dt, rand);
   const mood = fadeLifts(s.mood, dt);
-  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits, mood };
-  return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home };
+  const fell = stepStars(s.stars, ownsBowl(s), dt, rand);
+  for (const n of fell.shards) for (let i = 0; i < n; i++) yields.push({ from: 'star', what: WHITE, amount: 1, star: true });
+  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits, mood, stars: fell.stars };
+  return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home, stars: fell.shards.length };
 }
 
 export function addTo(p: Purse, what: string, amount: number): Purse {
@@ -170,7 +173,10 @@ export function comeBack(s: StudioState, now: number): { state: StudioState; sec
   let away: Purse = s.away ? { clay: s.away.clay, paint: { ...s.away.paint } } : emptyPurse();
   for (const y of made.slice(0, picked)) away = addTo(away, y.what, y.amount);
   const card = isEmpty(away) ? s.away : { ...away, seconds: (s.away?.seconds ?? 0) + seconds };
-  const ground = made.slice(picked, picked + Math.max(0, MAX_GROUND - s.ground.length));
+  // What Tidy didn't get lies on the island: as much as fits, and every star shard (they wait outside the limit).
+  const leftover = made.slice(picked);
+  const room = Math.max(0, MAX_GROUND - s.ground.filter((d) => !d.star).length);
+  const ground = [...leftover.filter((y) => !y.star).slice(0, room), ...leftover.filter((y) => y.star)];
   return { state: { ...state, purse, away: card, lastSeen: now }, seconds, ground };
 }
 
@@ -194,8 +200,9 @@ export function dropOnGround(
   const ground = [...s.ground];
   const dropped: { drop: Drop; index: number }[] = [];
   yields.forEach((y, i) => {
-    if (ground.length < MAX_GROUND) {
+    if (y.star || ground.filter((g) => !g.star).length < MAX_GROUND) {
       const d: Drop = { id: `d${s.seed.toString(36)}-${i}-${Math.random().toString(36).slice(2, 7)}`, ...spot(y, i), what: y.what, amount: y.amount };
+      if (y.star) d.star = true;
       ground.push(d);
       dropped.push({ drop: d, index: i });
     }
@@ -296,8 +303,9 @@ export function nextGoal(s: StudioState): string {
   if (harbourUnlocked(s) && !harbourOf(s)) {
     return s.purse.clay >= HARBOUR_COST ? 'Next: build the harbour!' : `Next: Harbour, ${more(HARBOUR_COST - s.purse.clay)}`;
   }
-  const found = MIXABLE.filter((c) => s.discovered.includes(c)).length;
-  if (found < MIXABLE.length && paints >= 2) return `Next: mix a new colour (${found} of ${MIXABLE.length} found)`;
+  const mixable = s.stars.seen ? MIXABLE_ALL : MIXABLE; // white (from the stars) opens the pastels
+  const found = mixable.filter((c) => s.discovered.includes(c)).length;
+  if (found < mixable.length && paints >= 2) return `Next: mix a new colour (${found} of ${mixable.length} found)`;
   if (bare && paints) return 'Next: tap a ghost and dip it in paint';
   // Once the island is getting full of characters, room comes before more of them.
   const grow = islandCost(s);

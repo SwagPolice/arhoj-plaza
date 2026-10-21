@@ -34,6 +34,8 @@ export function mixResult(a: string, b: string): string | null {
 
 /** The colours that can be mixed today (not needing white). */
 export const MIXABLE = RECIPES.filter(([a, b]) => a !== WHITE && b !== WHITE).map((r) => r[2]);
+/** Every colour the bowl can make, white ones included (once shooting stars bring white). */
+export const MIXABLE_ALL = RECIPES.map((r) => r[2]);
 
 /** The recipe that makes a colour, if any. */
 export const recipeFor = (colour: string) => RECIPES.find((r) => r[2] === colour) ?? null;

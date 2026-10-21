@@ -115,6 +115,7 @@ export const ADDED_SINCE_STUDIO_V1 = {
   storage: [],
   mood: {},
   friends: {},
+  stars: { wait: 1200, seen: 0 },
 };
 
 // An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.

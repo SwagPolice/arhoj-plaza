@@ -7,6 +7,7 @@
 import { defaultRecipe, EYES, normaliseRecipe, PERSONALITIES, randomName, type CharacterRecipe } from '../character/recipe';
 import { DECOR_KINDS, normaliseLayout, type DecorKind, type IslandLayout } from '../scene/layout';
 import { pick } from '../util/random';
+import { FIRST_STAR, newStars, type Stars } from './stars';
 
 export const STUDIO_VERSION = 1;
 
@@ -16,7 +17,7 @@ export const PRIMARIES = { red: '#d8382f', yellow: '#f2c230', cobalt: '#2f55b5' 
 /** What you own (or what's waiting for you): clay, plus paint by colour. */
 export type Purse = { clay: number; paint: Record<string, number> };
 /** Something lying on the ground, waiting to be collected (hovered over, or tapped on touch screens): `what` is 'clay' or a paint colour. */
-export type Drop = { id: string; x: number; z: number; what: string; amount: number };
+export type Drop = { id: string; x: number; z: number; what: string; amount: number; star?: boolean }; // star: a shard, outside the limit
 
 /** Traits a Studio character can gain on top of its personality (kept here, not in the recipe, so share codes stay the same). */
 export const TRAITS = ['tidy', 'seafarer'] as const;
@@ -76,6 +77,7 @@ export type StudioState = {
   storage: Stored[]; // things put away, in the order they went in (added after v1 shipped: missing = empty)
   mood: Record<string, Mood>; // by character id (added after v1 shipped: missing = neutral)
   friends: Record<string, number>; // friendship 0–1 by pair, 'idA|idB' sorted (added after v1 shipped: missing = none)
+  stars: Stars; // the next shooting star (added after v1 shipped: missing = none seen yet)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -109,6 +111,7 @@ export function newStudio(now = Date.now()): StudioState {
     storage: [],
     mood: {},
     friends: {},
+    stars: newStars(),
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -156,10 +159,13 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
   }
   const ground: Drop[] = [];
   for (const d of Array.isArray(o.ground) ? o.ground : []) {
-    if (!isObj(d) || ground.length >= MAX_GROUND) continue;
+    if (!isObj(d)) continue;
+    const star = d.star === true; // star shards wait outside the 30-drop limit
+    if (!star && ground.filter((g) => !g.star).length >= MAX_GROUND) continue;
     const what = d.what === 'clay' || (typeof d.what === 'string' && isHex(d.what)) ? (d.what as string) : null;
     if (!what || typeof d.id !== 'string') continue;
-    ground.push({ id: d.id, x: Number(d.x) || 0, z: Number(d.z) || 0, what: what.toLowerCase(), amount: whole(d.amount, 1, 1) });
+    const drop: Drop = { id: d.id, x: Number(d.x) || 0, z: Number(d.z) || 0, what: what.toLowerCase(), amount: whole(d.amount, 1, 1) };
+    ground.push(star ? { ...drop, star } : drop);
   }
   const progress: Record<string, number> = {};
   if (isObj(o.progress)) for (const [k, v] of Object.entries(o.progress)) progress[k] = count(v);
@@ -227,6 +233,8 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
       const [a, b, extra] = pair.split('|');
       if (extra === undefined && a && b && a < b && ids.has(a) && ids.has(b) && unit(v) > 0) friends[pair] = unit(v);
     }
+  const st = isObj(o.stars) ? o.stars : {};
+  const stars: Stars = { wait: count(st.wait, FIRST_STAR), seen: whole(st.seen, 0) };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
 
   return {
@@ -248,6 +256,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     storage,
     mood,
     friends,
+    stars,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

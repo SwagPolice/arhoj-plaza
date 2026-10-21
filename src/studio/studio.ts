@@ -34,7 +34,7 @@ const LAND = 0.45; // seconds for a drop to arc to the ground
 const POP = 0.25; // seconds for a collected drop to pop away
 const TIDY_PAUSE = 0.8; // seconds between a Tidy character's pickups
 
-type Flying = { obj: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; t: number };
+type Flying = { obj: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; t: number; time: number; arc: number };
 
 /**
  * Studio Mode: start with one bare clay ghost, collect what everyone drops, build, dip.
@@ -58,6 +58,7 @@ export class Studio extends IslandView {
   private harbourBtn = button('', 'btn', () => this.buildHarbour());
   private islandBtn = button('', 'btn', () => this.biggerIsland());
   private cameraEase: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null = null;
+  private streaks: { obj: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number }[] = [];
   private arrangeBtn = button('Arrange', 'btn', () => this.setArranging(true));
   private harbourView = new HarbourView();
   private harbourDialog: HTMLDialogElement | null = null;
@@ -227,7 +228,7 @@ export class Studio extends IslandView {
     if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
     const sold = soldOut(this.state.merchant);
-    const { state, yields, mixed, visit, boatHome } = advance(this.state, dt * this.speed);
+    const { state, yields, mixed, visit, boatHome, stars } = advance(this.state, dt * this.speed);
     this.state = state;
     // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
     // is too full for it to land (it shouldn't vanish into the held pile); everything else lands on the ground.
@@ -238,6 +239,7 @@ export class Studio extends IslandView {
     const fresh = yields.filter((y) => !direct.includes(y));
     if (fresh.length) this.place(fresh);
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
+    if (stars) this.shootingStar();
     if (boatHome) this.onBoatHome();
     if (visit) this.onVisit(visit, sold);
     // The scene follows the save: he's shown if he's here (after loading or coming back), gone if he left meanwhile.
@@ -249,6 +251,7 @@ export class Studio extends IslandView {
     this.tidyUp(dt);
     this.feelAround(dt);
     this.animateDrops(dt);
+    this.animateStreaks(dt);
     this.stirBowl(t);
     if ((this.saveClock += dt) > 5) this.persist();
   }
@@ -300,6 +303,7 @@ export class Studio extends IslandView {
       this.toast('The boat came back while you were away! Tap the harbour to see what they found.');
     }
     if (this.state.away) this.showAwayCard();
+    else if (seconds && ground.some((y) => y.star)) this.toast('Welcome back! A shooting star fell while you were away: its shards are waiting.');
     else if (seconds && ground.length) this.toast('Welcome back! A few things were made while you were away.');
     else if (!hadCard && seconds && this.state.merchant.here) this.toast('The merchant is visiting right now!');
   }
@@ -353,6 +357,7 @@ export class Studio extends IslandView {
     };
     const from = (y: Yield) => {
       if (quietly) return anywhere();
+      if (y.star) return anywhere().setY(9); // a shard falls from high above, anywhere on the island
       const agent = this.agents.find((a) => a.recipe.id === y.from);
       if (agent) return new THREE.Vector3(agent.pos.x, agent.built.height * 0.6, agent.pos.y);
       const well = this.state.island.items.find((d) => d.id === y.from);
@@ -408,9 +413,10 @@ export class Studio extends IslandView {
   private addDrop(d: Drop, from: THREE.Vector3 | null) {
     const obj = makeDrop(d);
     obj.userData.dropId = d.id;
+    obj.userData.star = !!d.star;
     const to = new THREE.Vector3(d.x, 0.08, d.z);
     obj.position.copy(from ?? to);
-    if (from) this.flying.push({ obj, from, to, t: 0 });
+    if (from) this.flying.push({ obj, from, to, t: 0, time: d.star ? 1.1 + Math.random() * 0.5 : LAND, arc: d.star ? 0 : 0.6 });
     this.drops.add(obj);
   }
 
@@ -441,12 +447,18 @@ export class Studio extends IslandView {
   private animateDrops(dt: number) {
     const t = performance.now() / 1000;
     this.flying = this.flying.filter((f) => {
-      f.t = Math.min(1, f.t + dt / LAND);
-      f.obj.position.lerpVectors(f.from, f.to, f.t);
-      f.obj.position.y += Math.sin(f.t * Math.PI) * 0.6; // a little arc
+      f.t = Math.min(1, f.t + dt / f.time);
+      f.obj.position.lerpVectors(f.from, f.to, f.arc ? f.t : f.t * f.t); // a shard speeds up as it falls
+      f.obj.position.y += Math.sin(f.t * Math.PI) * f.arc; // a little arc
       return f.t < 1;
     });
     for (const obj of this.drops.children) {
+      if (obj.userData.star) {
+        // Star shards turn slowly and twinkle.
+        obj.rotation.y = t * 1.4 + obj.id;
+        const glint = obj.children[0];
+        if (glint instanceof THREE.Mesh) (glint.material as THREE.MeshPhysicalMaterial).emissiveIntensity = 0.35 + 0.3 * Math.max(0, Math.sin(t * 4 + obj.id * 1.7));
+      }
       if (this.flying.some((f) => f.obj === obj) || this.popping.some((p) => p.obj === obj)) continue;
       obj.position.y = 0.08 + Math.sin(t * 3 + obj.id) * 0.025; // a gentle bob
     }
@@ -965,6 +977,41 @@ export class Studio extends IslandView {
     return names.length < 2 ? (names[0] ?? 'nobody') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
   }
 
+  // ---------- shooting stars ----------
+
+  /** A star streaks across the sky (its shards are already on their way down). */
+  private shootingStar() {
+    const r = this.state.island.radius;
+    // Across the top of the view (from the upper left towards the middle), just behind the island, whatever
+    // the screen's shape; warm gold, so it shows against the pale sky.
+    this.camera.updateMatrixWorld();
+    const depth = new THREE.Vector3(0, 0, -r * 1.3).project(this.camera).z;
+    const from = new THREE.Vector3(-0.9, 0.82, depth).unproject(this.camera);
+    const to = new THREE.Vector3(0.3, 0.5, depth).unproject(this.camera);
+    const streak = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.02, 4.5, 10), // a wide, bright head (pointing the way it goes) and a thin tail
+      new THREE.MeshBasicMaterial({ color: '#ffcf5a', transparent: true, opacity: 0.95, depthWrite: false, fog: false }), // no haze: it's far off, but bright
+    );
+    streak.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+    this.scene.add(streak);
+    this.streaks.push({ obj: streak, from, to, t: 0 });
+    this.toast(this.state.stars.seen === 1 ? 'A shooting star! Its shards are white paint: collect them.' : 'A shooting star!');
+    this.firstTime('star', '✨');
+    this.render();
+  }
+
+  private animateStreaks(dt: number) {
+    this.streaks = this.streaks.filter((s) => {
+      s.t = Math.min(1, s.t + dt / 1.3);
+      s.obj.position.lerpVectors(s.from, s.to, s.t);
+      (s.obj.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - s.t * s.t); // fades out as it falls
+      if (s.t < 1) return true;
+      this.scene.remove(s.obj);
+      disposeObject(s.obj);
+      return false;
+    });
+  }
+
   // ---------- happiness ----------
 
   protected onChat(a: Agent, b: Agent) {
@@ -1164,6 +1211,18 @@ export class Studio extends IslandView {
 /** A clay blob or a paint drop, with a bigger invisible target so it's easy to tap on a phone. */
 function makeDrop(d: Drop): THREE.Object3D {
   const g = new THREE.Group();
+  if (d.star) {
+    // A shard of a shooting star: a small faceted white glint that glows a little.
+    const shard = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.1),
+      new THREE.MeshPhysicalMaterial({ color: '#ffffff', emissive: '#fff4d6', emissiveIntensity: 0.5, roughness: 0.1, clearcoat: 1, flatShading: true }),
+    );
+    shard.scale.set(0.9, 1.35, 0.9);
+    shard.position.y = 0.06;
+    shard.castShadow = true;
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    return g.add(shard, hit);
+  }
   const clay = d.what === 'clay';
   const blob = new THREE.Mesh(
     new THREE.SphereGeometry(clay ? 0.11 : 0.09, 16, 12),
