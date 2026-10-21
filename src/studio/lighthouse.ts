@@ -1,15 +1,17 @@
 /*
  * The lighthouse's rules, as pure functions like merchant.ts. Once the merchant can reach the coast he can see
- * its light: from it you can order one thing from his last basket (sold out or not), for a little extra, and he
+ * its light, out on its own little island just offshore: from it you can order one thing from his last basket (sold out or not), for a little extra, and he
  * brings it on his next visit. Nothing in his basket is lost for good.
  * All numbers are first guesses; tests/studio-lighthouse.test.ts checks them.
  */
-import { EDGE_SPOT, placeAtEdge } from '../scene/layout';
+import { MAX_DECOR, newDecorId, toSea } from '../scene/layout';
 import { giveTrait, hasTrait, ITEMS, stepOf, type Item } from './merchant';
 import { store } from './storage';
 import type { Order, StudioState } from './state';
 
 export const LIGHTHOUSE_COST = 400;
+/** Where its island goes: behind the big one, a little to the right, where there's sky for it to stand tall against. */
+export const LIGHTHOUSE_ANGLE = (150 / 180) * Math.PI; // from +z (towards you) round towards +x (the right)
 export const ORDER_EXTRA = 0.25; // an order costs his price plus a quarter more clay (paint stays the same)
 
 export const lighthouseOf = (s: StudioState) => s.island.items.find((d) => d.kind === 'lighthouse') ?? null;
@@ -18,8 +20,9 @@ export const lighthouseUnlocked = (s: StudioState) => stepOf(s) >= 1;
 
 export function buyLighthouse(s: StudioState): StudioState | null {
   if (lighthouseOf(s) || !lighthouseUnlocked(s) || s.purse.clay < LIGHTHOUSE_COST) return null;
-  const spot = placeAtEdge(s.island, 'lighthouse', EDGE_SPOT.right);
-  if (!spot) return null;
+  if (s.island.items.length >= MAX_DECOR) return null;
+  const a = LIGHTHOUSE_ANGLE;
+  const spot = toSea(s.island, { id: newDecorId('lighthouse'), kind: 'lighthouse', x: Math.sin(a), z: Math.cos(a), size: 1, rot: 0 });
   return { ...s, purse: { ...s.purse, clay: s.purse.clay - LIGHTHOUSE_COST }, island: { ...s.island, items: [...s.island.items, spot] } };
 }
 

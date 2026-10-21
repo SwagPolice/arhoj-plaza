@@ -5,7 +5,7 @@
  */
 import type { CharacterRecipe, Personality } from '../character/recipe';
 import { defaultLayer } from '../character/recipe';
-import { onEdge, placeNew, toEdge } from '../scene/layout';
+import { offshore, onEdge, placeNew, toEdge, toSea } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, MIXABLE_ALL, mixResult } from './mixing';
@@ -43,12 +43,12 @@ export const islandStep = (s: StudioState) => {
 /** The cost of the next size, or null once it's as big as it gets. */
 export const islandCost = (s: StudioState): number | null => ISLAND_COSTS[islandStep(s)] ?? null;
 
-/** Make the island a size bigger. Everything stays put, except the harbour and the lighthouse, which move out to the new edge. */
+/** Make the island a size bigger. Everything stays put, except the harbour, which moves out to the new edge (and the lighthouse's island, which keeps its distance). */
 export function growIsland(s: StudioState): StudioState | null {
   const cost = islandCost(s);
   if (cost === null || s.purse.clay < cost) return null;
   const bigger = { ...s.island, radius: ISLAND_SIZES[islandStep(s) + 1] };
-  bigger.items = bigger.items.map((d) => (onEdge(d.kind) ? toEdge(bigger, d) : d));
+  bigger.items = bigger.items.map((d) => (offshore(d.kind) ? toSea(bigger, d) : onEdge(d.kind) ? toEdge(bigger, d) : d));
   return { ...s, purse: { ...s.purse, clay: s.purse.clay - cost }, island: bigger };
 }
 

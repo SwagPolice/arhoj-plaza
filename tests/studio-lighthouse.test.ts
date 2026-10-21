@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { advance, buyBowl, growIsland, nextGoal } from '../src/studio/economy';
 import {
-  buyLighthouse, cancelOrder, handOver, lastBasket, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, waiting,
+  buyLighthouse, cancelOrder, handOver, lastBasket, LIGHTHOUSE_ANGLE, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, waiting,
 } from '../src/studio/lighthouse';
 import { buyHarbour, harbourOf } from '../src/studio/harbour';
 import { hasTrait, ITEMS, STEPS } from '../src/studio/merchant';
 import { canStore } from '../src/studio/storage';
 import { bareGhost, newStudio, PRIMARIES, type StudioState } from '../src/studio/state';
-import { canMove } from '../src/scene/layout';
+import { canMove, canPlace, obstaclesFor, OFFSHORE } from '../src/scene/layout';
 import { defaultLayer } from '../src/character/recipe';
 
 const item = (id: string) => ITEMS.find((i) => i.id === id)!;
@@ -37,18 +37,30 @@ describe('building the lighthouse', () => {
     expect(buyLighthouse(built)).toBeNull(); // just the one
   });
 
-  test('it stands on the edge, away from the harbour, and stays there (even as the island grows)', () => {
+  test('it stands out at sea on its own island, behind and to the right, and keeps its distance as the island grows', () => {
     const s = buyHarbour({ ...atCoast(), merchant: { ...atCoast().merchant } })!;
     const built = buyLighthouse(s)!;
     const l = lighthouseOf(built)!;
     const h = harbourOf(built)!;
-    expect(Math.hypot(l.x - h.x, l.z - h.z)).toBeGreaterThan(s.island.radius); // the other side of the island
-    expect(l.x).toBeGreaterThan(0); // the right side
+    expect(Math.hypot(l.x, l.z)).toBeCloseTo(s.island.radius + OFFSHORE, 1);
+    expect(Math.atan2(l.x, l.z)).toBeCloseTo(LIGHTHOUSE_ANGLE, 1);
+    expect(Math.hypot(l.x - h.x, l.z - h.z)).toBeGreaterThan(s.island.radius); // well away from the harbour
     expect(canMove('lighthouse')).toBe(false);
     expect(canStore('lighthouse')).toBe(false);
     const grown = growIsland(built)!;
     const moved = lighthouseOf(grown)!;
-    expect(Math.hypot(moved.x, moved.z)).toBeGreaterThan(Math.hypot(l.x, l.z));
+    expect(Math.hypot(moved.x, moved.z)).toBeCloseTo(grown.island.radius + OFFSHORE, 1);
+    expect(Math.atan2(moved.x, moved.z)).toBeCloseTo(LIGHTHOUSE_ANGLE, 1);
+  });
+
+  test("out at sea, it's in nobody's way on the island", () => {
+    const built = lit();
+    const l = lighthouseOf(built)!;
+    expect(obstaclesFor(built.island).some((o) => o.x === l.x && o.z === l.z)).toBe(false); // (the bowl still is one)
+    const rock = { id: 'r', kind: 'rock' as const, x: 0, z: 0, size: 0.3, rot: 0 };
+    const a = Math.atan2(l.x, l.z);
+    const r = built.island.radius - 0.7; // on the island, right by where it stands
+    expect(canPlace(built.island, rock, Math.sin(a) * r, Math.cos(a) * r)).toBe(true);
   });
 
   test('it becomes a goal once unlocked, after mixing and dipping', () => {

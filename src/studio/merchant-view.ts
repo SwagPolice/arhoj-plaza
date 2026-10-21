@@ -46,10 +46,11 @@ export class MerchantBalloon {
 
   /**
    * Find where he hovers: just off the island's edge, at the spot where he fits best on screen (clear of the HUD
-   * at the top and the build bar at the bottom), drifting only as far as he stays in view. Checked again when the
-   * screen changes shape or he grows.
+   * at the top and the build bar at the bottom), drifting only as far as he stays in view, and keeping away from
+   * `avoid` (the lighthouse's angle round the island, if there is one). Checked again when the screen changes shape
+   * or he grows.
    */
-  setSpot(radius: number, camera: THREE.Camera) {
+  setSpot(radius: number, camera: THREE.Camera, avoid: number | null = null) {
     this.camera = camera;
     this.radius = radius;
     camera.updateMatrixWorld(); // projecting needs the camera where it is now
@@ -68,7 +69,9 @@ export class MerchantBalloon {
     // Never in front of the island (he'd hide it): only the sides and the back.
     const allowed = (i: number) => Math.cos(i * step) < 0.25;
     // Prefer the right side and the back (the harbour is on the left).
-    const score = (misfit: number, i: number) => misfit + (Math.sin(i * step) < 0 ? 0.3 : 0);
+    // And not by the lighthouse (within about 60° of it).
+    const near = (i: number) => avoid !== null && Math.cos(i * step - avoid) > Math.cos(Math.PI / 3);
+    const score = (misfit: number, i: number) => misfit + (Math.sin(i * step) < 0 ? 0.3 : 0) + (near(i) ? 0.6 : 0);
     let chosen: { fit: number; distance: number; angle: number; drift: number } | null = null;
     // The biggest size (one factor for every step, worked out for his biggest, so growing still looks like growing)
     // that fits with a little room to drift; off the edge first, else over the rim or the back of the island.

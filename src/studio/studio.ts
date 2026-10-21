@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { IslandView } from '../scene/island-view';
-import { footprint, type IslandLayout } from '../scene/layout';
+import { footprint, OFFSHORE, toSea, type IslandLayout } from '../scene/layout';
+import { decorHeight } from '../scene/island';
 import { glaze } from '../scene/stage';
 import { disposeObject } from '../character/build';
 import { EYES, PERSONALITIES, randomName, type Eyes, type Personality } from '../character/recipe';
@@ -201,7 +202,8 @@ export class Studio extends IslandView {
 
   resize(w: number, h: number) {
     super.resize(w, h);
-    this.merchant?.setSpot(this.layout.radius, this.camera);
+    const lighthouse = this.state && lighthouseOf(this.state);
+    this.merchant?.setSpot(this.layout.radius, this.camera, lighthouse ? Math.atan2(lighthouse.x, lighthouse.z) : null);
   }
 
   // ---------- IslandView hooks ----------
@@ -210,6 +212,32 @@ export class Studio extends IslandView {
     if (!this.state || this.booting) return; // the first builds, before the time away is counted
     this.state = { ...this.state, island: layout };
     this.persist();
+  }
+
+  // The lighthouse stands tall on its own island behind. The usual view may cut its top off, but you can always
+  // zoom out far enough to see all of it (and the haze stays back beyond it).
+  protected fitToIsland() {
+    super.fitToIsland();
+    const lighthouse = this.state && lighthouseOf(this.state);
+    if (!lighthouse) return;
+    const target = this.controls.target;
+    const from = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target));
+    from.phi = this.camera.aspect < 0.8 ? 0.7 : Math.atan2(16.5, 11.5); // the usual way it looks (as in resize)
+    const at = toSea(this.layout, lighthouse);
+    const top = new THREE.Vector3(at.x, decorHeight(lighthouse), at.z);
+    const cam = this.camera.clone();
+    let d = this.viewDistance();
+    for (; d < this.viewDistance() * 4; d *= 1.03) {
+      cam.position.copy(target).add(new THREE.Vector3().setFromSpherical(new THREE.Spherical(d, from.phi, from.theta)));
+      cam.lookAt(target);
+      cam.updateMatrixWorld();
+      if (top.clone().project(cam).y < 0.78) break; // below the HUD
+    }
+    const far = d * 1.15;
+    this.controls.maxDistance = Math.max(this.controls.maxDistance, far);
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = Math.max(fog.near, far + this.layout.radius + OFFSHORE);
+    fog.far = Math.max(fog.far, far + this.layout.radius * 7);
   }
 
   protected get withFlowers() {
@@ -842,6 +870,14 @@ export class Studio extends IslandView {
   }
 
   /** A size bigger: everything stays put (the harbour moves out to the new edge), and the camera eases back. */
+  /** Ease the camera back to frame the island as it is now (bigger, or with a lighthouse), and find the merchant a new spot. */
+  private reframe() {
+    const from = this.camera.position.clone();
+    this.resize(this.w, this.h);
+    this.cameraEase = { from, to: this.camera.position.clone(), t: 0 };
+    this.camera.position.copy(from);
+  }
+
   private biggerIsland() {
     const cost = islandCost(this.state);
     if (cost === null) return;
@@ -850,10 +886,7 @@ export class Studio extends IslandView {
     if (!next) return;
     this.state = next;
     this.applyLayout(next.island);
-    const from = this.camera.position.clone();
-    this.resize(this.w, this.h); // frames the new size (and finds the merchant a new spot)
-    this.cameraEase = { from, to: this.camera.position.clone(), t: 0 };
-    this.camera.position.copy(from);
+    this.reframe();
     this.returnToIsland();
     const agent = this.agents.at(0);
     if (agent) this.say(agent, '🎉', 0.3);
@@ -1010,6 +1043,7 @@ export class Studio extends IslandView {
     if (!next) return this.toast('No room on the edge of the island for a lighthouse.');
     this.state = next;
     this.applyLayout(next.island);
+    this.reframe();
     this.returnToIsland();
     this.firstTime('lighthouse', '🗼');
     this.toast('The lighthouse is lit! Tap it to order from the merchant’s last basket.');

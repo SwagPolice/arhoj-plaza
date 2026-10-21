@@ -47,6 +47,15 @@ export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'drift
 /** The harbour and the lighthouse belong on the island's edge, facing the sea: they stay where they were built. */
 export const onEdge = (kind: DecorKind) => kind === 'harbour' || kind === 'lighthouse';
 export const canMove = (kind: DecorKind) => !onEdge(kind);
+/** The lighthouse stands out at sea, on its own little island just off the edge: this far beyond it (to its middle). */
+export const OFFSHORE = 2.6;
+export const offshore = (kind: DecorKind) => kind === 'lighthouse';
+/** Where an offshore thing stands for an island this size: out at sea, at the same spot round it. */
+export function toSea(layout: IslandLayout, item: Decor): Decor {
+  const a = Math.atan2(item.x, item.z);
+  const r = layout.radius + OFFSHORE;
+  return { ...item, x: round2(Math.sin(a) * r), z: round2(Math.cos(a) * r), rot: round2(((a % TAU) + TAU) % TAU) };
+}
 
 /** Trees, ponds and rocks block walking and can't overlap each other; little things (mushrooms, shells…) are walk-through. */
 export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic'].includes(kind);
@@ -92,7 +101,7 @@ export function canPlace(layout: IslandLayout, item: Decor, x: number, z: number
   const fp = footprint(item);
   if (Math.hypot(x, z) + fp > layout.radius - EDGE) return false;
   return layout.items.every((o) => {
-    if (o.id === item.id) return true;
+    if (o.id === item.id || offshore(o.kind)) return true; // out at sea, in nobody's way
     const d = Math.hypot(x - o.x, z - o.z);
     if (blocksWalking(item.kind) && blocksWalking(o.kind)) return d >= fp + footprint(o);
     if (blocksWalking(item.kind)) return d >= fp + 0.05; // a big thing may not land on a mushroom
@@ -127,11 +136,11 @@ export function placeItem(layout: IslandLayout, thing: Omit<Decor, 'x' | 'z'>): 
   return null;
 }
 
-/** Where edge things go first: the harbour on the left side, the lighthouse on the right, towards the back (angles from +z towards +x). */
-export const EDGE_SPOT = { left: Math.atan2(-1, 0.25), right: Math.atan2(1, -0.4) }; // the right a little towards the back
+/** Where edge things go first: the harbour on the left side (angles from +z towards +x). */
+export const EDGE_SPOT = { left: Math.atan2(-1, 0.25), right: Math.atan2(1, 0.25) };
 
 /**
- * A new object on the island's edge, turned to face out to sea (the harbour, the lighthouse), or null if the edge is full.
+ * A new object on the island's edge, turned to face out to sea (the harbour), or null if the edge is full.
  * It looks from `from` (the left side unless told otherwise) round both ways: the sides are in view, clear of the
  * build bar at the bottom.
  */
@@ -208,7 +217,7 @@ export function minRadius(layout: IslandLayout): number {
 
 /** What characters walk around. */
 export function obstaclesFor(layout: IslandLayout): Obstacle[] {
-  return layout.items.filter((d) => blocksWalking(d.kind)).map((d) => ({ x: d.x, z: d.z, r: footprint(d) }));
+  return layout.items.filter((d) => blocksWalking(d.kind) && !offshore(d.kind)).map((d) => ({ x: d.x, z: d.z, r: footprint(d) }));
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100 || 0; // `|| 0` turns -0 into 0

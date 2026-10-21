@@ -3,7 +3,7 @@ import { canvasTexture, glaze, makeCanvas, speckle } from './stage';
 import { latheFrom, type Pt } from '../character/build';
 import type { World } from '../plaza/behaviour';
 import { mulberry32 } from '../util/random';
-import { blocksWalking, footprint, obstaclesFor, type Decor, type IslandLayout } from './layout';
+import { blocksWalking, footprint, obstaclesFor, offshore, toSea, type Decor, type IslandLayout } from './layout';
 
 const TREE: Pt[] = [[0, 0], [0.3, 0], [0.6, 0], [0.62, 0.06], [0.5, 0.3], [0.34, 0.62], [0.18, 0.88], [0.06, 1.02], [0, 1.05]];
 const GREENS = ['#8fb07a', '#a4c08a', '#7fa36f'];
@@ -70,8 +70,9 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'totem' ? makeTotem(d)
       : d.kind === 'rainbow' ? makeRainbow(d)
       : makeMushroom(d);
-    obj.position.set(d.x, 0, d.z);
-    obj.rotation.y = d.rot;
+    const at = offshore(d.kind) ? toSea(layout, d) : d; // out at sea, however big the island is now
+    obj.position.set(at.x, 0, at.z);
+    obj.rotation.y = at.rot;
     obj.userData.decorId = d.id;
     decor.set(d.id, obj);
     group.add(obj);
@@ -293,12 +294,13 @@ const LIGHTHOUSE: Pt[] = [
   }),
 ];
 const LIGHTHOUSE_EYES = { y: 1.32, x: 0.21, r: 0.085 };
-const BEAM = 9; // how far its beams reach (before the lighthouse is scaled down)
-const LIGHTHOUSE_SCALE = 0.72; // a little taller than a ghost
+const BEAM = 6; // how far its beams reach (before the tower is scaled up)
+const LIGHTHOUSE_SCALE = 2.16; // towering over everyone, at about three and a half ghosts tall
+const ISLET = 1.5; // the radius of its own little island
 
 /**
- * Lighthouse (Studio Mode): a tall white ghost lit from inside, like Arhoj's ghost candle light, its warm light
- * shining out of its two eye holes in soft beams. The part named 'spin' turns, sweeping the beams round over the
+ * Lighthouse (Studio Mode): a tall white ghost lit from inside, like Arhoj's ghost candle light, standing on its
+ * own little island just offshore, its warm light shining out of its two eye holes in soft beams. The part named 'spin' turns, sweeping the beams round over the
  * sea; the beams are named 'beam' (Studio Mode pulses them while an order is waiting). Built facing +z.
  */
 function makeLighthouse() {
@@ -339,8 +341,23 @@ function makeLighthouse() {
     beam.raycast = () => {}; // taps go through the light
     spin.add(eye, beam);
   }
-  g.add(spin);
-  g.scale.setScalar(LIGHTHOUSE_SCALE);
+  spin.scale.setScalar(LIGHTHOUSE_SCALE);
+  g.add(spin, makeIslet());
+  return g;
+}
+
+/** The lighthouse's own little island: a small round of the same glazed grass and clay as the big one. */
+function makeIslet() {
+  const g = new THREE.Group();
+  const clay = glaze('#c9b394', { roughness: 0.85, clearcoat: 0 });
+  const ground = new THREE.Mesh(new THREE.CylinderGeometry(ISLET, ISLET, 0.4, 48), [clay, glaze('#c5d6a3', { roughness: 0.55, clearcoat: 0.4 }), clay]);
+  ground.position.y = -0.2;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(ISLET, 0.1, 12, 64), glaze('#f1e7d6'));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = -0.02;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(ISLET, ISLET * 0.6, 0.9, 48), clay);
+  base.position.y = -0.85;
+  g.add(ground, rim, base);
   return g;
 }
 
@@ -449,7 +466,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'shell') return 0.2 * d.size;
   if (d.kind === 'seaglass') return 0.15 * d.size;
   if (d.kind === 'harbour') return 0.3;
-  if (d.kind === 'lighthouse') return 1.6;
+  if (d.kind === 'lighthouse') return 4.8;
   if (d.kind === 'driftwood') return 0.3 * d.size;
   if (d.kind === 'coral') return 0.55 * d.size;
   if (d.kind === 'mosaic') return 0.1 * d.size;
