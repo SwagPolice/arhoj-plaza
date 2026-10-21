@@ -307,6 +307,7 @@ body {
   .studio-bar { bottom: 12px; width: calc(100vw - 24px); box-sizing: border-box; justify-content: center; }
   .studio-bar { flex-wrap: wrap; }
   .layer:has(.studio-bar) .plaza-toast { bottom: 170px; } /* above a two-row bar */
+  .layer .plaza-toast { white-space: normal; width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; text-align: center; border-radius: 18px; } /* long messages wrap */
   .studio-bar .btn { flex: 1 1 28%; padding-left: 6px; padding-right: 6px; line-height: 1.25; } /* wraps to a second row when the bar is full */
   .studio-bar .price { display: block; font-size: 13px; font-weight: 500; opacity: 0.75; }
   .studio-bar .price::before { content: none; }

@@ -3,11 +3,11 @@
  * Things bought or found go here first; Arrange puts them out and away again. No limit.
  * Pure functions, like economy.ts.
  */
-import { DECOR_KINDS, newDecorId, placeItem, SIZES, startSize, type Decor, type DecorKind } from '../scene/layout';
+import { DECOR_KINDS, newDecorId, onEdge, placeItem, SIZES, startSize, type Decor, type DecorKind } from '../scene/layout';
 import type { StudioState } from './state';
 
-/** Anything can be put away except the harbour, which belongs on its edge. */
-export const canStore = (kind: DecorKind) => kind !== 'harbour';
+/** Anything can be put away except the harbour and the lighthouse, which belong on their edge. */
+export const canStore = (kind: DecorKind) => !onEdge(kind);
 
 /** Add something new to storage (bought or found). */
 export function store(s: StudioState, kind: DecorKind): StudioState {
@@ -39,8 +39,8 @@ export function takeOut(s: StudioState, kind: DecorKind): { state: StudioState; 
   };
 }
 
-/** Can this be dyed? Everything with one glazed main part: not ponds, the harbour, the mosaic or the rainbow pot. */
-export const canDye = (kind: DecorKind) => !['pond', 'harbour', 'mosaic', 'rainbow'].includes(kind); // not water, nor the many-coloured pieces
+/** Can this be dyed? Everything with one glazed main part: not ponds, the harbour, the lighthouse, the mosaic or the rainbow pot. */
+export const canDye = (kind: DecorKind) => !['pond', 'harbour', 'lighthouse', 'mosaic', 'rainbow'].includes(kind); // not water, nor the many-coloured pieces
 
 /**
  * Dye a decoration's main part with a paint you own (1 paint), or back to white bisque (`colour` null, free).

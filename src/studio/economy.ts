@@ -5,11 +5,12 @@
  */
 import type { CharacterRecipe, Personality } from '../character/recipe';
 import { defaultLayer } from '../character/recipe';
-import { placeNew, toEdge } from '../scene/layout';
+import { onEdge, placeNew, toEdge } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
 import { MIXABLE, MIXABLE_ALL, mixResult } from './mixing';
-import { hasTrait, LINGER, stepOf, stepVisit } from './merchant';
+import { hasTrait, LINGER, stepOf, stepVisit, type Item } from './merchant';
+import { LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, unpack, waiting } from './lighthouse';
 import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
 import { BOOST, fadeLifts, happiness } from './happiness';
 import { stepStars, WHITE } from './stars';
@@ -42,12 +43,12 @@ export const islandStep = (s: StudioState) => {
 /** The cost of the next size, or null once it's as big as it gets. */
 export const islandCost = (s: StudioState): number | null => ISLAND_COSTS[islandStep(s)] ?? null;
 
-/** Make the island a size bigger. Everything stays put, except the harbour, which moves out to the new edge. */
+/** Make the island a size bigger. Everything stays put, except the harbour and the lighthouse, which move out to the new edge. */
 export function growIsland(s: StudioState): StudioState | null {
   const cost = islandCost(s);
   if (cost === null || s.purse.clay < cost) return null;
   const bigger = { ...s.island, radius: ISLAND_SIZES[islandStep(s) + 1] };
-  bigger.items = bigger.items.map((d) => (d.kind === 'harbour' ? toEdge(bigger, d) : d));
+  bigger.items = bigger.items.map((d) => (onEdge(d.kind) ? toEdge(bigger, d) : d));
   return { ...s, purse: { ...s.purse, clay: s.purse.clay - cost }, island: bigger };
 }
 
@@ -74,12 +75,15 @@ export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null
 
 /**
  * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
- * merchant comes and goes, and the boat sails on. `speed` slows the making down (time away), not the rest.
+ * merchant comes and goes (bringing what was ordered from the lighthouse), and the boat sails on. `speed` slows the making down (time away), not the rest.
  * Characters away on the boat make nothing.
  */
 export function advance(
   s: StudioState, seconds: number, speed = 1,
-): { state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean; stars: number } {
+): {
+  state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean; stars: number;
+  delivered: Item | null; // what he brought from the lighthouse, now in storage
+} {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
   const wellTints = { ...s.wellTints };
@@ -129,8 +133,9 @@ export function advance(
   const mood = fadeLifts(s.mood, dt);
   const fell = stepStars(s.stars, ownsBowl(s), dt, rand);
   for (const n of fell.shards) for (let i = 0; i < n; i++) yields.push({ from: 'star', what: WHITE, amount: 1, star: true });
-  const state = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits, mood, stars: fell.stars };
-  return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home, stars: fell.shards.length };
+  const stepped = { ...s, progress, wellTints, bowl, discovered, merchant, harbour: sailed.harbour, traits: sailed.traits, mood, stars: fell.stars };
+  const { state, delivered } = unpack(stepped);
+  return { state: { ...state, seed: Math.floor(rand() * 2 ** 31) }, yields, mixed, visit, boatHome: home, stars: fell.shards.length, delivered };
 }
 
 export function addTo(p: Purse, what: string, amount: number): Purse {
@@ -287,6 +292,8 @@ export function nextGoal(s: StudioState): string {
   // Things that won't wait come first.
   if (s.merchant.here) return 'The merchant is here: tap him';
   if (s.harbour.haul) return 'The boat is back: tap the harbour';
+  const ordered = waiting(s);
+  if (ordered) return `He brought your ${ordered.name.toLowerCase()}: tap the lighthouse`;
   if (!s.wellsBuilt) {
     const cost = wellCost(s);
     return s.purse.clay >= cost ? 'Next: build your first glaze well!' : `Next: Glaze well, ${more(cost - s.purse.clay)}`;
@@ -307,6 +314,9 @@ export function nextGoal(s: StudioState): string {
   const found = mixable.filter((c) => s.discovered.includes(c)).length;
   if (found < mixable.length && paints >= 2) return `Next: mix a new colour (${found} of ${mixable.length} found)`;
   if (bare && paints) return 'Next: tap a ghost and dip it in paint';
+  if (lighthouseUnlocked(s) && !lighthouseOf(s)) {
+    return s.purse.clay >= LIGHTHOUSE_COST ? 'Next: build the lighthouse!' : `Next: Lighthouse, ${more(LIGHTHOUSE_COST - s.purse.clay)}`;
+  }
   // Once the island is getting full of characters, room comes before more of them.
   const grow = islandCost(s);
   if (grow !== null && s.characters.length >= 4) {

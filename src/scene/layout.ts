@@ -7,7 +7,7 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow'] as const; // well, bowl, harbour: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow', 'lighthouse'] as const; // well, bowl, harbour, lighthouse: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
@@ -38,13 +38,15 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   mosaic: { min: 0.7, max: 1.4 },
   totem: { min: 0.7, max: 1.4 },
   rainbow: { min: 0.7, max: 1.4 },
+  lighthouse: { min: 1, max: 1 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
 export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow'].includes(kind);
 
-/** The harbour belongs on the island's edge, facing the sea: it stays where it was built. */
-export const canMove = (kind: DecorKind) => kind !== 'harbour';
+/** The harbour and the lighthouse belong on the island's edge, facing the sea: they stay where they were built. */
+export const onEdge = (kind: DecorKind) => kind === 'harbour' || kind === 'lighthouse';
+export const canMove = (kind: DecorKind) => !onEdge(kind);
 
 /** Trees, ponds and rocks block walking and can't overlap each other; little things (mushrooms, shells…) are walk-through. */
 export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic'].includes(kind);
@@ -59,6 +61,7 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'shell') return 0.32 * d.size;
   if (d.kind === 'seaglass') return 0.18 * d.size;
   if (d.kind === 'harbour') return 0.55; // the landward end; the pier itself reaches out over the water
+  if (d.kind === 'lighthouse') return 0.5;
   if (d.kind === 'driftwood') return 0.5 * d.size;
   if (d.kind === 'coral') return 0.3 * d.size;
   if (d.kind === 'mosaic') return 0.5 * d.size;
@@ -124,15 +127,19 @@ export function placeItem(layout: IslandLayout, thing: Omit<Decor, 'x' | 'z'>): 
   return null;
 }
 
+/** Where edge things go first: the harbour on the left side, the lighthouse on the right, towards the back (angles from +z towards +x). */
+export const EDGE_SPOT = { left: Math.atan2(-1, 0.25), right: Math.atan2(1, -0.4) }; // the right a little towards the back
+
 /**
- * A new object on the island's edge, turned to face out to sea (the harbour), or null if the edge is full.
- * It looks from the left side round both ways: there it's in view, clear of the build bar at the bottom.
+ * A new object on the island's edge, turned to face out to sea (the harbour, the lighthouse), or null if the edge is full.
+ * It looks from `from` (the left side unless told otherwise) round both ways: the sides are in view, clear of the
+ * build bar at the bottom.
  */
-export function placeAtEdge(layout: IslandLayout, kind: DecorKind): Decor | null {
+export function placeAtEdge(layout: IslandLayout, kind: DecorKind, from = EDGE_SPOT.left): Decor | null {
   if (layout.items.length >= MAX_DECOR) return null;
   const item: Decor = { id: newDecorId(kind), kind, x: 0, z: 0, size: 1, rot: 0 };
   const r = layout.radius - footprint(item) - EDGE - 0.01;
-  const start = Math.atan2(-1, 0.25); // the left side, a little towards the camera (an angle from +z towards +x)
+  const start = from;
   for (let i = 0; i <= 72; i++) {
     const a = start + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 36);
     const x = round2(Math.sin(a) * r);
@@ -142,7 +149,7 @@ export function placeAtEdge(layout: IslandLayout, kind: DecorKind): Decor | null
   return null;
 }
 
-/** An edge item (the harbour) moved out to the edge of the island as it is now, at the same spot round it. */
+/** An edge item (the harbour, the lighthouse) moved out to the edge of the island as it is now, at the same spot round it. */
 export function toEdge(layout: IslandLayout, item: Decor): Decor {
   const r = layout.radius - footprint(item) - EDGE - 0.01;
   const a = Math.atan2(item.x, item.z);

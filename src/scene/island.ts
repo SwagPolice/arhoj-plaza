@@ -62,6 +62,7 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'shell' ? makeShell(d)
       : d.kind === 'seaglass' ? makeSeaGlass(d)
       : d.kind === 'harbour' ? makeHarbour()
+      : d.kind === 'lighthouse' ? makeLighthouse()
       : d.kind === 'driftwood' ? makeDriftwood(d)
       : d.kind === 'coral' ? makeCoral(d)
       : d.kind === 'vase' ? makeVase(d)
@@ -95,7 +96,7 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
   }
 
   group.traverse((o) => {
-    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true;
+    if (o instanceof THREE.Mesh && !o.userData.light) o.castShadow = o.receiveShadow = true; // light itself casts no shadow
   });
 
   const water = new THREE.Mesh(new THREE.CircleGeometry(90, 64), glaze('#cfe0dc', { roughness: 0.15, clearcoat: 0.6 }));
@@ -282,6 +283,67 @@ function makeHarbour() {
   return g;
 }
 
+// The lighthouse's body, like Arhoj's ghost candle light: straight sides and a rounded top.
+const LIGHTHOUSE_R = 0.62;
+const LIGHTHOUSE: Pt[] = [
+  [0, 0], [0.3, 0], [LIGHTHOUSE_R - 0.02, 0], [LIGHTHOUSE_R, 0.02], [LIGHTHOUSE_R, 1.5],
+  ...Array.from({ length: 12 }, (_, i): Pt => {
+    const a = ((i + 1) / 12) * (Math.PI / 2);
+    return [LIGHTHOUSE_R * Math.cos(a), 1.5 + 0.62 * Math.sin(a)];
+  }),
+];
+const LIGHTHOUSE_EYES = { y: 1.32, x: 0.21, r: 0.085 };
+const BEAM = 9; // how far its beams reach (before the lighthouse is scaled down)
+const LIGHTHOUSE_SCALE = 0.72; // a little taller than a ghost
+
+/**
+ * Lighthouse (Studio Mode): a tall white ghost lit from inside, like Arhoj's ghost candle light, its warm light
+ * shining out of its two eye holes in soft beams. The part named 'spin' turns, sweeping the beams round over the
+ * sea; the beams are named 'beam' (Studio Mode pulses them while an order is waiting). Built facing +z.
+ */
+function makeLighthouse() {
+  const g = new THREE.Group();
+  const spin = new THREE.Group();
+  spin.name = 'spin';
+  const body = new THREE.Mesh(latheFrom(LIGHTHOUSE, 64).geo, glaze('#f7f5f0', { roughness: 0.55, clearcoat: 0.3 }));
+  spin.add(body);
+  const lit = new THREE.MeshBasicMaterial({ color: '#ffd27a', toneMapped: false });
+  const fade = canvasTexture(
+    makeCanvas(8, 128, (ctx) => {
+      const grad = ctx.createLinearGradient(0, 0, 0, 128);
+      grad.addColorStop(0, '#000'); // far end
+      grad.addColorStop(0.55, '#3a3a3a');
+      grad.addColorStop(1, '#fff'); // at the eye
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 8, 128);
+    }),
+    false,
+  );
+  const glow = new THREE.MeshBasicMaterial({
+    color: '#ffcf70', alphaMap: fade, transparent: true, opacity: 0.22,
+    depthWrite: false, side: THREE.FrontSide, fog: false, toneMapped: false, // front faces only: no bright doubled edges
+  });
+  const cone = new THREE.CylinderGeometry(0.75, LIGHTHOUSE_EYES.r, BEAM, 24, 1, true).rotateX(Math.PI / 2).translate(0, 0, BEAM / 2);
+  for (const side of [-1, 1]) {
+    const { x, y, r } = LIGHTHOUSE_EYES;
+    const z = Math.sqrt(LIGHTHOUSE_R ** 2 - x ** 2);
+    const eye = new THREE.Mesh(new THREE.CircleGeometry(r, 24), lit);
+    eye.position.set(side * x, y, z + 0.003);
+    eye.rotation.y = Math.atan2(side * x, z);
+    eye.userData.light = true;
+    const beam = new THREE.Mesh(cone, glow);
+    beam.name = 'beam';
+    beam.position.copy(eye.position);
+    beam.rotation.set(-0.1, side * 0.06, 0); // a little upward, and a little apart
+    beam.userData.light = true;
+    beam.raycast = () => {}; // taps go through the light
+    spin.add(eye, beam);
+  }
+  g.add(spin);
+  g.scale.setScalar(LIGHTHOUSE_SCALE);
+  return g;
+}
+
 /** A piece of driftwood: a pale, weathered log with a stub of a branch. */
 function makeDriftwood(d: Decor) {
   const wood = glaze(main(d, '#d9cdb8'), { roughness: 0.75, clearcoat: 0 });
@@ -387,6 +449,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'shell') return 0.2 * d.size;
   if (d.kind === 'seaglass') return 0.15 * d.size;
   if (d.kind === 'harbour') return 0.3;
+  if (d.kind === 'lighthouse') return 1.6;
   if (d.kind === 'driftwood') return 0.3 * d.size;
   if (d.kind === 'coral') return 0.55 * d.size;
   if (d.kind === 'mosaic') return 0.1 * d.size;

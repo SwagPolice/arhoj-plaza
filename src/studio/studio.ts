@@ -25,6 +25,9 @@ import {
   harbourUnlocked, isOpen, setSail,
 } from './harbour';
 import { HarbourView } from './harbour-view';
+import {
+  buyLighthouse, canReceive, cancelOrder, handOver, lastBasket, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, waiting,
+} from './lighthouse';
 import { bestFriend, chatted, comfortHere, happiness, hearts, petted, settleComfort } from './happiness';
 import type { Find } from './state';
 
@@ -57,6 +60,8 @@ export class Studio extends IslandView {
   private wellBtn = button('', 'btn', () => this.buildWell());
   private bowlBtn = button('', 'btn', () => this.buildBowl());
   private harbourBtn = button('', 'btn', () => this.buildHarbour());
+  private lighthouseBtn = button('', 'btn', () => this.buildLighthouse());
+  private lighthouseDialog: HTMLDialogElement | null = null;
   private islandBtn = button('', 'btn', () => this.biggerIsland());
   private cameraEase: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null = null;
   private streaks: { obj: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number }[] = [];
@@ -142,7 +147,7 @@ export class Studio extends IslandView {
         },
       },
     );
-    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.islandBtn, this.arrangeBtn);
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.lighthouseBtn, this.islandBtn, this.arrangeBtn);
     this.card.style.display = 'none';
     const purse = el('div', 'hud-purse');
     const paintWrap = el('div', 'hud-paint-wrap');
@@ -247,10 +252,11 @@ export class Studio extends IslandView {
     const wasSailingHome = this.harbourView.sailingHome;
     this.harbourView.update(dt, t, harbour ? this.island.decor.get(harbour.id) : undefined, crew, !!this.state.harbour.haul);
     if (this.harbourView.sailingHome !== wasSailingHome) this.render();
+    this.shineLighthouse(dt, t);
     if (this.decorator.active) return; // time stands still while you arrange
     const known = this.state.discovered;
     const sold = soldOut(this.state.merchant);
-    const { state, yields, mixed, visit, boatHome, stars } = advance(this.state, dt * this.speed);
+    const { state, yields, mixed, visit, boatHome, stars, delivered } = advance(this.state, dt * this.speed);
     this.state = state;
     // Paints the bowl gives back go straight into your purse, and so does a new colour when the ground
     // is too full for it to land (it shouldn't vanish into the held pile); everything else lands on the ground.
@@ -263,7 +269,7 @@ export class Studio extends IslandView {
     if (mixed) this.afterMix(mixed, !!mixed.made && !known.includes(mixed.made));
     if (stars) this.shootingStar();
     if (boatHome) this.onBoatHome();
-    if (visit) this.onVisit(visit, sold);
+    if (visit) this.onVisit(visit, sold, delivered);
     // The scene follows the save: he's shown if he's here (after loading or coming back), gone if he left meanwhile.
     else if (this.state.merchant.here && !this.merchant.root.visible) this.merchant.show(STEPS[stepOf(this.state)].scale);
     else if (!this.state.merchant.here && this.merchant.ready) {
@@ -294,6 +300,9 @@ export class Studio extends IslandView {
     const harbour = harbourOf(this.state);
     const harbourObj = harbour && this.island.decor.get(harbour.id);
     if (harbourObj && this.raycaster.intersectObject(harbourObj, true).length) return this.openHarbour();
+    const lighthouse = lighthouseOf(this.state);
+    const lighthouseObj = lighthouse && this.island.decor.get(lighthouse.id);
+    if (lighthouseObj && this.raycaster.intersectObject(lighthouseObj, true).length) return this.openLighthouse();
     const agent = this.pickAgent(e);
     if (!agent) {
       this.card.style.display = 'none';
@@ -674,10 +683,14 @@ export class Studio extends IslandView {
 
   // ---------- the merchant ----------
 
-  private onVisit(visit: 'arrived' | 'left', sold = false) {
+  private onVisit(visit: 'arrived' | 'left', sold = false, delivered: Item | null = null) {
     if (visit === 'arrived') {
       this.merchant.arrive(STEPS[stepOf(this.state)].scale);
-      this.toast(this.state.merchant.visits === 1 ? 'A balloon is coming! The merchant has arrived: tap him to see what he brought.' : 'The merchant is back! Tap him to see what he brought.');
+      this.lighthouseDialog?.close();
+      const ordered = waiting(this.state);
+      if (delivered) this.toast(`The merchant is back, with your ${delivered.name.toLowerCase()}! It's in your storage.`);
+      else if (ordered) this.toast(`The merchant is back, with your ${ordered.name.toLowerCase()}! Tap the lighthouse to give it to someone.`);
+      else this.toast(this.state.merchant.visits === 1 ? 'A balloon is coming! The merchant has arrived: tap him to see what he brought.' : 'The merchant is back! Tap him to see what he brought.');
     } else {
       this.shop?.close();
       this.merchant.leave();
@@ -989,6 +1002,129 @@ export class Studio extends IslandView {
     this.render();
   }
 
+  // ---------- the lighthouse ----------
+
+  private buildLighthouse() {
+    if (this.state.purse.clay < LIGHTHOUSE_COST) return this.toast(`The lighthouse needs ${LIGHTHOUSE_COST} clay. Keep collecting!`);
+    const next = buyLighthouse(this.state);
+    if (!next) return this.toast('No room on the edge of the island for a lighthouse.');
+    this.state = next;
+    this.applyLayout(next.island);
+    this.returnToIsland();
+    this.firstTime('lighthouse', '🗼');
+    this.toast('The lighthouse is lit! Tap it to order from the merchant’s last basket.');
+    this.persist();
+    this.render();
+  }
+
+  /** Its light turns slowly; while an order waits for him, the beams pulse, signalling out to sea. */
+  private shineLighthouse(dt: number, t: number) {
+    const lighthouse = lighthouseOf(this.state);
+    const obj = lighthouse && this.island.decor.get(lighthouse.id);
+    if (!obj) return;
+    const spin = obj.getObjectByName('spin');
+    if (spin) spin.rotation.y += dt * ((Math.PI * 2) / 14); // once round every 14 seconds
+    const beam = obj.getObjectByName('beam');
+    if (beam instanceof THREE.Mesh) {
+      const signalling = !!this.state.merchant.order;
+      (beam.material as THREE.MeshBasicMaterial).opacity = signalling ? 0.4 + 0.35 * Math.max(0, Math.sin(t * 3)) : 0.4;
+    }
+  }
+
+  /** Tap the lighthouse: hand over what he brought, see your order (and cancel it), or order from his last basket. */
+  private openLighthouse() {
+    this.lighthouseDialog?.close();
+    const s = this.state;
+    const ordered = waiting(s);
+    if (ordered) {
+      const chips = el('div', 'chips');
+      const who = s.characters.filter((c) => !hasTrait(s, c.id, ordered.trait!) && (s.traits[c.id] ?? []).length < 3);
+      const dialog = openDialog(`He brought your ${ordered.name.toLowerCase()}!`, [
+        el('p', 'muted', who.length ? 'Who gets it? They become Tidy: they pick up drops near them by themselves.' : 'Everyone already has one, or no room for another trait. Make a new ghost first.'),
+        chips,
+      ]);
+      for (const c of who)
+        chips.append(
+          button(`${PERSONALITY_ICON[c.personality]} ${c.name || 'Unnamed'}`, 'chip', () => {
+            const next = handOver(this.state, c.id);
+            if (!next) return this.toast("You can't give that right now.");
+            this.state = next;
+            const agent = this.agents.find((a) => a.recipe.id === c.id);
+            if (agent) this.say(agent, '🧹');
+            this.toast(`${c.name || 'They'} became Tidy!`);
+            this.persist();
+            this.render();
+            dialog.close();
+          }),
+        );
+      this.lighthouseDialog = dialog;
+      return;
+    }
+    if (s.merchant.here) {
+      this.lighthouseDialog = openDialog('The lighthouse', [el('p', '', 'The merchant is here right now: tap him to see what he brought.')]);
+      return;
+    }
+    const order = s.merchant.order;
+    if (order) {
+      const item = lastBasket(s).find((i) => i.id === order.id) ?? stock(s).find((i) => i.id === order.id);
+      const name = item ? `${item.icon} ${item.name}` : 'your order';
+      const dialog = openDialog('The lighthouse', [
+        el('p', '', `The light is signalling for ${name}. He'll bring it on his next visit.`),
+        el('p', 'muted', 'Changed your mind? Cancel before he comes and everything you paid comes back.'),
+        row(
+          button('Cancel the order', 'btn', () => {
+            const next = cancelOrder(this.state);
+            if (!next) return;
+            this.state = next;
+            this.toast('Order cancelled: everything you paid is back.');
+            this.persist();
+            this.render();
+            dialog.close();
+          }),
+        ),
+      ]);
+      this.lighthouseDialog = dialog;
+      return;
+    }
+    const items = lastBasket(s);
+    const rows = items.map((item) => {
+      const price = orderPrice(item);
+      const r = el('div', 'shop-row');
+      const text = el('div', 'shop-text');
+      text.append(el('div', 'shop-name', `${item.icon} ${item.name}`), el('div', 'muted shop-blurb', item.blurb));
+      const cost = el('div', 'shop-price', `${price.clay} clay`);
+      if (price.paint) {
+        cost.append(' + ', this.dot(price.paint.colour), `${price.paint.n}`);
+      }
+      const ok = canReceive(s, item);
+      const affordable = s.purse.clay >= price.clay && (!price.paint || (s.purse.paint[price.paint.colour] ?? 0) >= price.paint.n);
+      const buy = button('Order', 'btn' + (ok && affordable ? ' primary' : ' off'), () => {
+        const r = orderItem(this.state, item.id);
+        if (!('state' in r)) {
+          return this.toast(
+            r.why === 'cost' ? `Ordering the ${item.name.toLowerCase()} costs ${price.clay} clay${price.paint ? ` and ${price.paint.n} ${colourName(price.paint.colour)} paint` : ''}.`
+            : r.why === 'who' ? 'Everyone already has one!'
+            : "You can't order that right now.",
+          );
+        }
+        this.state = r.state;
+        this.toast(`The light flashes out to sea: he'll bring the ${item.name.toLowerCase()} next time.`);
+        this.persist();
+        this.render();
+        dialog.close();
+      });
+      r.append(text, cost, buy);
+      return r;
+    });
+    const dialog = openDialog('The lighthouse', [
+      el('p', 'muted', items.length
+        ? "Its light reaches the merchant out at sea. Order one thing from his last basket (even if it sold out) and he'll bring it next time, for a quarter more clay."
+        : "Its light reaches the merchant out at sea. Once he's visited again, you can order from what he brought."),
+      ...rows,
+    ]);
+    this.lighthouseDialog = dialog;
+  }
+
   /** "Pip", "Pip and Mochi", "Pip, Mochi and Bo" (by character id). */
   private names(ids: string[]) {
     const names = ids.map((id) => this.state.characters.find((c) => c.id === id)?.name || 'someone');
@@ -1236,6 +1372,9 @@ export class Studio extends IslandView {
     priced(this.harbourBtn, 'Harbour', HARBOUR_COST);
     this.harbourBtn.style.display = harbourUnlocked(s) && !harbourOf(s) ? '' : 'none';
     this.harbourBtn.classList.toggle('off', s.purse.clay < HARBOUR_COST);
+    priced(this.lighthouseBtn, 'Lighthouse', LIGHTHOUSE_COST);
+    this.lighthouseBtn.style.display = lighthouseUnlocked(s) && !lighthouseOf(s) ? '' : 'none';
+    this.lighthouseBtn.classList.toggle('off', s.purse.clay < LIGHTHOUSE_COST);
     if (this.cardFor) this.showCard(this.cardFor);
   }
 

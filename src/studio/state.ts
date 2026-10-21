@@ -25,11 +25,18 @@ export type Trait = (typeof TRAITS)[number];
 
 /** One thing in his basket this visit, and how many he has left. */
 export type Offer = { id: string; left: number };
+/** Something ordered from the lighthouse, and what was paid for it (given back if it's cancelled). */
+export type Order = { id: string; clay: number; paint?: { colour: string; n: number } };
 /**
  * The balloon merchant: whether he's here, seconds until he comes or until he goes, clay paid to him so far,
  * and what he brought this visit (null until it's packed: on arrival, or for saves from before baskets).
+ * Added later, for the lighthouse: what was in his basket last visit (`last`, item ids), what you've ordered from it
+ * (`order`), and an ordered trait item he brought that still needs someone to give it to (`delivery`).
  */
-export type Merchant = { here: boolean; wait: number; stay: number; paid: number; visits: number; offers: Offer[] | null };
+export type Merchant = {
+  here: boolean; wait: number; stay: number; paid: number; visits: number; offers: Offer[] | null;
+  last: string[]; order: Order | null; delivery: string | null;
+};
 export const FIRST_VISIT = 20; // seconds after the mixing bowl is built
 
 /** One thing an expedition brought back, and who found it. `what` is 'clay', a paint colour, or a decoration kind. */
@@ -85,7 +92,7 @@ export type StudioState = {
 };
 
 export const emptyPurse = (): Purse => ({ clay: 0, paint: {} });
-const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0, offers: null });
+const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0, offers: null, last: [], order: null, delivery: null });
 
 /** A bare clay ghost: no glaze yet, everything else picked at random (or by you). */
 export function bareGhost(over: Partial<CharacterRecipe> = {}): CharacterRecipe {
@@ -138,6 +145,10 @@ const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.i
 const count = (v: unknown, fb = 0) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fb);
 const whole = (v: unknown, fb: number, min = 0) => Math.max(min, Math.floor(count(v, fb)));
 const isHex = (k: string) => /^#[0-9a-f]{6}$/i.test(k);
+const order = (o: Raw): Order => {
+  const p = isObj(o.paint) && typeof o.paint.colour === 'string' && isHex(o.paint.colour) ? o.paint : null;
+  return { id: o.id as string, clay: whole(o.clay, 0), ...(p ? { paint: { colour: (p.colour as string).toLowerCase(), n: whole(p.n, 0) } } : {}) };
+};
 
 function normalisePurse(raw: unknown): Purse {
   const o = isObj(raw) ? raw : {};
@@ -188,6 +199,9 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     offers: Array.isArray(m.offers)
       ? m.offers.filter(isObj).filter((x) => typeof x.id === 'string').map((x) => ({ id: x.id as string, left: whole(x.left, 0) }))
       : null,
+    last: Array.isArray(m.last) ? m.last.filter((x): x is string => typeof x === 'string') : [],
+    order: isObj(m.order) && typeof m.order.id === 'string' ? order(m.order) : null,
+    delivery: typeof m.delivery === 'string' ? m.delivery : null,
   };
   const ids = new Set(characters.map((c) => c.id));
   const traits: Record<string, Trait[]> = {};
