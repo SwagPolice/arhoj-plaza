@@ -39,6 +39,7 @@ export abstract class IslandView implements Mode {
   private toastEl = el('div', 'toast plaza-toast');
   private toastTimer = 0;
   private down = { x: 0, y: 0 };
+  private glide: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null = null; // the camera going to find someone
 
   constructor(protected renderer: THREE.WebGLRenderer, env: THREE.Texture, uiRoot: HTMLElement, layout: IslandLayout) {
     this.scene.background = this.background;
@@ -125,6 +126,12 @@ export abstract class IslandView implements Mode {
 
   update(dt: number, t: number) {
     this.controls.update();
+    if (this.glide) {
+      const g = this.glide;
+      g.t = Math.min(1, g.t + dt / 1.1);
+      this.camera.position.lerpVectors(g.from, g.to, g.t * g.t * (3 - 2 * g.t));
+      if (g.t >= 1) this.glide = null;
+    }
     if (!this.frozen) stepAgents(this.agents, this.world, dt, t, (a, text, delay) => this.say(a, text, delay), (a, b) => this.onChat(a, b));
     this.onUpdate(dt, t);
     this.bubbles.update(this.w, this.h);
@@ -244,6 +251,25 @@ export abstract class IslandView implements Mode {
       }
       this.scene.add(built.root);
     }
+  }
+
+  /**
+   * Find someone: the camera glides round to their side of the island, a little closer, and they stop, turn
+   * to you and wave. False if they aren't on the island.
+   */
+  protected find(id: string): boolean {
+    const a = this.agents.find((x) => x.recipe.id === id);
+    if (!a || !a.built.root.visible) return false;
+    const target = this.controls.target;
+    const offset = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target));
+    if (a.pos.length() > 0.5) offset.theta = Math.atan2(a.pos.x, a.pos.y); // from their side (pos.y is z)
+    offset.radius = Math.max(this.controls.minDistance, this.viewDistance() * 0.8);
+    const to = target.clone().add(new THREE.Vector3().setFromSpherical(offset));
+    this.glide = { from: this.camera.position.clone(), to, t: 0 };
+    a.lookAt(to.x, to.z, 4);
+    a.built.pose.position.y = 0.3; // a little hop
+    this.say(a, '👋', 0.5);
+    return true;
   }
 
   protected say(a: Agent, text: string, delay = 0) {

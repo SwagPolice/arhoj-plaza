@@ -26,6 +26,8 @@ import {
   harbourUnlocked, isOpen, setSail,
 } from './harbour';
 import { HarbourView } from './harbour-view';
+import { cantLeave, NAME_MAX, rename, sayGoodbye } from './residents';
+import { openResidents, type Resident, type ResidentsDialog } from '../ui/residents';
 import {
   buyLighthouse, canReceive, cancelOrder, handOver, lastBasket, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, waiting,
 } from './lighthouse';
@@ -1287,6 +1289,101 @@ export class Studio extends IslandView {
       this.returnToIsland();
     }
     this.fitToIsland();
+  }
+
+  // ---------- residents ----------
+
+  /** Everyone who lives here: who they are, how they're doing, and Find, Rename and Say goodbye. */
+  openResidents() {
+    let open: ResidentsDialog | null = null;
+    const list = (): Resident[] => {
+      const s = this.state;
+      const away = atSea(s);
+      return s.characters.map((c) => {
+        const traits = s.traits[c.id] ?? [];
+        const friend = bestFriend(s, c.id);
+        const friendName = friend && s.characters.find((x) => x.id === friend)?.name;
+        const facts = [`${PERSONALITY_ICON[c.personality]} ${c.personality} · ${c.layers.length ? colourName(c.layers[0].colour) : 'bare clay'}`];
+        const extra = [
+          ...traits.map((t) => (t === 'tidy' ? '✨ Tidy' : '⚓ Seafarer')),
+          ...(friendName ? [`🤝 ${friendName}`] : []),
+        ];
+        if (extra.length) facts.push(extra.join(' · '));
+        facts.push(away.has(c.id) ? '⛵ At sea' : '❤️'.repeat(Math.max(1, hearts(happiness(s, c.id)))));
+        const name = c.name || 'They';
+        const leave = cantLeave(s, c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          swatch: c.layers[0]?.colour ?? CLAY,
+          facts,
+          tags: [c.personality, ...traits],
+          actions: [
+            {
+              label: 'Find', primary: true,
+              off: away.has(c.id) ? `${name} is at sea. Back with the boat!` : undefined,
+              run: () => {
+                if (this.find(c.id)) open?.dialog.close();
+              },
+            },
+            { label: 'Rename', run: () => this.askName(c.id, () => open?.redraw()) },
+            {
+              label: 'Say goodbye',
+              off: leave === 'last' ? "Your studio can't be empty: they're the only one here." : leave === 'sea' ? `${name} is at sea. Wait until they're back.` : undefined,
+              run: () => {
+                if (!confirm(`Say goodbye to ${c.name || 'them'}? They'll leave the studio for good.`)) return;
+                const next = sayGoodbye(this.state, c.id);
+                if (!next) return;
+                this.state = next;
+                if (this.cardFor === c.id) {
+                  this.card.style.display = 'none';
+                  this.cardFor = null;
+                }
+                this.tidyRest.delete(c.id);
+                this.tidyPick.delete(c.id);
+                this.syncHome();
+                this.persist();
+                this.render();
+                this.toast(`${c.name || 'They'} waved goodbye and floated off.`);
+                open?.redraw();
+              },
+            },
+          ],
+        };
+      });
+    };
+    open = openResidents({
+      title: 'Residents',
+      list,
+      tags: [
+        { key: 'tidy', label: '✨ Tidy' }, { key: 'seafarer', label: '⚓ Seafarer' },
+        ...PERSONALITIES.map((p) => ({ key: p, label: `${PERSONALITY_ICON[p]} ${p[0].toUpperCase()}${p.slice(1)}` })),
+      ],
+      say: (why) => this.toast(why),
+    });
+  }
+
+  /** A little dialog to give someone a new name. */
+  private askName(id: string, done: () => void) {
+    const c = this.state.characters.find((x) => x.id === id);
+    if (!c) return;
+    const input = el('input', 'name-input');
+    input.value = c.name;
+    input.maxLength = NAME_MAX;
+    const save = () => {
+      const next = rename(this.state, id, input.value);
+      if (next) {
+        this.state = next;
+        this.syncHome(); // their name follows them on the island too
+        this.persist();
+        this.render();
+      }
+      dialog.close();
+      done();
+    };
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && save());
+    const dialog = openDialog('Rename', [input, row(button('Save', 'btn primary', save))]);
+    input.select();
   }
 
   private showCard(id: string) {

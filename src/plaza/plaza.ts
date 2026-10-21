@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { IslandView } from '../scene/island-view';
 import type { IslandLayout } from '../scene/layout';
-import { randomRecipe, type CharacterRecipe } from '../character/recipe';
-import { loadAll, loadIsland, removeAll, saveIsland, saveOne } from '../storage';
+import { PERSONALITIES, randomRecipe, type CharacterRecipe } from '../character/recipe';
+import { CLAY } from '../character/palette';
+import { loadAll, loadIsland, removeAll, removeOne, saveIsland, saveOne } from '../storage';
+import { openResidents, type ResidentsDialog } from '../ui/residents';
 import { button, el } from '../ui/dom';
 import { Decorator } from './decorate';
 
@@ -142,6 +144,47 @@ export class Plaza extends IslandView {
     this.card.style.display = 'none';
     this.bubbles.clear();
     this.sync();
+  }
+
+  /** Everyone you've made: Find them on the island, Edit them in the maker, or Remove them. */
+  openResidents() {
+    if (this.decorator.active) this.setDecorating(false);
+    let open: ResidentsDialog | null = null;
+    open = openResidents({
+      title: 'Residents',
+      intro: loadAll().length ? '' : 'Nobody lives here yet. Make a character, or invite a few random friends.',
+      list: () =>
+        loadAll().map((r) => ({
+          id: r.id,
+          name: r.name,
+          swatch: r.layers[0]?.colour ?? CLAY,
+          facts: [`${PERSONALITY_ICON[r.personality]} ${r.personality} · ${r.body}`],
+          tags: [r.personality],
+          actions: [
+            { label: 'Find', primary: true, run: () => this.find(r.id) && open?.dialog.close() },
+            {
+              label: 'Edit',
+              run: () => {
+                open?.dialog.close();
+                this.hooks.edit(r);
+              },
+            },
+            {
+              label: 'Remove',
+              run: () => {
+                if (!confirm(`Say goodbye to ${r.name || 'this character'}? This can't be undone.`)) return;
+                removeOne(r.id);
+                this.card.style.display = 'none';
+                this.bubbles.clear();
+                this.sync();
+                open?.redraw();
+              },
+            },
+          ],
+        })),
+      tags: PERSONALITIES.map((p) => ({ key: p, label: `${PERSONALITY_ICON[p]} ${p[0].toUpperCase()}${p.slice(1)}` })),
+      say: (why) => this.toast(why),
+    });
   }
 
   private showCard(r: CharacterRecipe) {

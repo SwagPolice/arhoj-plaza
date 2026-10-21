@@ -47,7 +47,7 @@ if (debug === 'grid' || debug === 'merchant') {
   const byName: Record<ModeName, Mode> = { make: editor, plaza, studio };
   modes.push(editor, plaza, studio);
 
-  // Creative shows Make and Plaza; Studio shows only its island. ⇄ switches, 💾 backs up both.
+  // Creative shows Make and Plaza; Studio shows only its island. ⇄ switches, 👥 lists who lives there, 💾 backs up both.
   const tabs = el('nav', 'tabs');
   const tabButtons: Record<ModeName, HTMLButtonElement> = {
     make: button('✏️ Make', '', () => openMaker()),
@@ -58,7 +58,13 @@ if (debug === 'grid' || debug === 'merchant') {
   switcher.title = 'Switch between Creative and Studio';
   const backup = button('💾', 'tab-icon', () => openBackupDialog());
   backup.title = 'Backup & move';
-  tabs.append(tabButtons.make, tabButtons.plaza, tabButtons.studio, switcher, backup);
+  const residents = button('👥', 'tab-icon', () => {
+    if (currentName === 'studio') return studio.openResidents();
+    go('plaza'); // from the maker too: Find needs the island
+    plaza.openResidents();
+  });
+  residents.title = 'Residents';
+  tabs.append(tabButtons.make, tabButtons.plaza, tabButtons.studio, switcher, residents, backup);
   ui.append(tabs, el('div', 'fan-note', 'Fan project · not affiliated with Studio Arhoj'));
 
   const gameOf = (name: ModeName): GameMode => (name === 'studio' ? 'studio' : 'creative');
