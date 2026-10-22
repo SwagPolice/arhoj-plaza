@@ -4,7 +4,7 @@
  * The numbers aim for a calm pace; tests/studio-economy.test.ts checks the pacing they give.
  */
 import type { CharacterRecipe, Personality } from '../character/recipe';
-import { defaultLayer } from '../character/recipe';
+import { CLAY_HEIGHT, defaultLayer, MAX_LAYERS, REACH, type Edge, type GlazeLayer } from '../character/recipe';
 import { offshore, onEdge, placeNew, toEdge, toSea } from '../scene/layout';
 import { mulberry32 } from '../util/random';
 import { emptyPurse, MAX_GROUND, PRIMARIES, type Drop, type Purse, type StudioState } from './state';
@@ -22,7 +22,8 @@ export const RATES: Record<Personality, { every: number; double: number }> = {
   curious: { every: 22, double: 0 },
   shy: { every: 26, double: 0 },
 };
-export const PAINT_SHARE = 0.1; // a dipped character's drop is paint this often
+/** How often a dipped character's drop is paint rather than clay, by how many glaze layers it has: more layers, more paint. */
+export const PAINT_SHARE = [0, 0.1, 0.17, 0.24];
 export const WELL_EVERY = 150; // seconds per paint from a glaze well
 export const AWAY_CAP = 8 * 3600; // time away counts up to 8 hours
 export const AWAY_MIN = 60; // shorter breaks just carry on
@@ -70,8 +71,8 @@ export const bowlOf = (s: StudioState) => s.island.items.find((d) => d.kind === 
 /** You own a bowl if it's on the island or put away in storage (only one, either way). */
 export const ownsBowl = (s: StudioState) => !!bowlOf(s) || s.storage.some((d) => d.kind === 'bowl');
 
-/** The colour a character's top glaze is (what it drops as paint), or null when it's bare clay. */
-export const topColour = (r: CharacterRecipe) => r.layers.at(-1)?.colour ?? null;
+/** The colours of a character's glaze layers, base first (it drops paint in any of them); empty when it's bare clay. */
+export const layerColours = (r: CharacterRecipe) => r.layers.map((l) => l.colour);
 
 /**
  * Let `seconds` pass: everyone and every well makes what it would have made in that time, the bowl stirs, and the
@@ -98,10 +99,14 @@ export function advance(
     const p = (progress[c.id] ?? rand() * every) + making * (1 + BOOST * happiness(s, c.id)); // happier: a bit faster // newcomers start part-way, so drops don't all land at once
     const n = Math.floor(p / every);
     progress[c.id] = p - n * every;
-    const colour = topColour(c);
+    const colours = layerColours(c);
+    const share = PAINT_SHARE[Math.min(colours.length, PAINT_SHARE.length - 1)];
     for (let i = 0; i < n; i++) {
-      if (colour && rand() < PAINT_SHARE) yields.push({ from: c.id, what: colour, amount: 1 });
-      else yields.push({ from: c.id, what: 'clay', amount: rand() < double ? 2 : 1 });
+      if (colours.length && rand() < share) {
+        // One layer: no second roll, so a single-dipped character plays out exactly as before layers.
+        const colour = colours.length > 1 ? colours[Math.floor(rand() * colours.length)] : colours[0];
+        yields.push({ from: c.id, what: colour, amount: 1 });
+      } else yields.push({ from: c.id, what: 'clay', amount: rand() < double ? 2 : 1 });
     }
   }
   const primaries = Object.values(PRIMARIES);
@@ -274,16 +279,38 @@ export function startMix(s: StudioState, a: string, b: string): StudioState | nu
 }
 
 /** Dip a bare character in a paint you own (one dip per character for now). */
-export function dip(s: StudioState, characterId: string, colour: string): StudioState | null {
+/** How a dip goes on: how far it reaches (0 to 1; on the first dip, how much of the foot it covers) and its edge. */
+export type DipShape = { depth?: number; edge?: Edge };
+
+/**
+ * Dip a character in a paint you own (1 paint), over what it already has: up to 3 layers. The first dip covers
+ * everything but the bare clay foot (deeper leaves less clay showing); later dips are taken from the top and
+ * reach `depth` of the way down. Always glossy for now.
+ */
+export function dip(s: StudioState, characterId: string, colour: string, shape: DipShape = {}): StudioState | null {
   const c = s.characters.find((r) => r.id === characterId);
-  if (!c || c.layers.length || (s.purse.paint[colour] ?? 0) < 1) return null;
-  const dipped: CharacterRecipe = { ...c, layers: [defaultLayer(colour)] };
+  if (!c || c.layers.length >= MAX_LAYERS || (s.purse.paint[colour] ?? 0) < 1) return null;
+  const edge = shape.edge ?? 'clean';
+  const first = !c.layers.length;
+  const depth = shape.depth === undefined ? null : Math.min(1, Math.max(0, shape.depth));
+  const layer: GlazeLayer = { ...defaultLayer(colour), edge, reach: first ? 0.5 : round2(depth === null ? 0.5 : REACH.min + depth * (REACH.max - REACH.min)) };
+  const clayHeight = first && depth !== null ? round2(CLAY_HEIGHT.max - depth * (CLAY_HEIGHT.max - CLAY_HEIGHT.min)) : c.clayHeight;
+  const dipped: CharacterRecipe = { ...c, clayHeight, layers: [...c.layers, layer] };
   return {
     ...s,
     purse: { ...s.purse, paint: { ...s.purse.paint, [colour]: s.purse.paint[colour] - 1 } },
     characters: s.characters.map((r) => (r.id === characterId ? dipped : r)),
   };
 }
+
+/** Scrape the top glaze layer off: free, but its paint isn't given back. Null if it's bare clay. */
+export function scrape(s: StudioState, characterId: string): StudioState | null {
+  const c = s.characters.find((r) => r.id === characterId);
+  if (!c?.layers.length) return null;
+  return { ...s, characters: s.characters.map((r) => (r === c ? { ...r, layers: r.layers.slice(0, -1) } : r)) };
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** The one next thing to aim for, always shown. */
 export function nextGoal(s: StudioState): string {

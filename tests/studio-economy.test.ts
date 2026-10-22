@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
   advance, AWAY_CAP, AWAY_SPEED, BOWL_COST, bowlOf, buyBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround,
-  ghostCost, MIX_TIME, nextGoal, startMix, TIDY_AWAY, wellCost,
+  ghostCost, MIX_TIME, nextGoal, PAINT_SHARE, scrape, startMix, TIDY_AWAY, wellCost,
 } from '../src/studio/economy';
+import { CLAY_HEIGHT, defaultLayer, REACH } from '../src/character/recipe';
 import { mixResult } from '../src/studio/mixing';
 import { bareGhost, MAX_GROUND, newStudio, PRIMARIES, type StudioState } from '../src/studio/state';
 import type { Personality } from '../src/character/recipe';
@@ -147,7 +148,7 @@ describe('the ground and spending', () => {
     const dipped = dip(bought, bought.characters[0].id, PRIMARIES.red)!;
     expect(dipped.purse.paint[PRIMARIES.red]).toBe(0);
     expect(dipped.characters[0].layers[0].colour).toBe(PRIMARIES.red);
-    expect(dip(dipped, dipped.characters[0].id, PRIMARIES.red)).toBeNull(); // one dip each, and no paint left
+    expect(dip(dipped, dipped.characters[0].id, PRIMARIES.red)).toBeNull(); // no paint left
   });
 
   test('costs rise steeply, so the studio grows slowly', () => {
@@ -288,4 +289,55 @@ describe('pacing (calm: tuned 2026-10-15)', () => {
       expect(dipAt).toBeLessThanOrEqual(11 * 60);
     });
   }
+});
+
+describe('layered dipping', () => {
+  const { red, yellow, cobalt } = PRIMARIES;
+  const rich = (): StudioState => ({ ...start(), purse: { clay: 0, paint: { [red]: 5, [yellow]: 5, [cobalt]: 5 } } });
+  const id = (s: StudioState) => s.characters[0].id;
+
+  test('up to three layers, each over the last, each for one paint', () => {
+    let s = rich();
+    s = dip(s, id(s), red)!;
+    s = dip(s, id(s), yellow)!;
+    s = dip(s, id(s), cobalt)!;
+    expect(s.characters[0].layers.map((l) => l.colour)).toEqual([red, yellow, cobalt]);
+    expect(s.purse.paint).toEqual({ [red]: 4, [yellow]: 4, [cobalt]: 4 });
+    expect(dip(s, id(s), red)).toBeNull(); // three is the most
+  });
+
+  test('how far a dip reaches, and its edge: the first sets how much clay shows at the foot, later ones how far down', () => {
+    let s = rich();
+    s = dip(s, id(s), red, { depth: 1, edge: 'wavy' })!;
+    expect(s.characters[0].clayHeight).toBe(CLAY_HEIGHT.min); // all the way down
+    expect(s.characters[0].layers[0]).toMatchObject({ colour: red, edge: 'wavy', finish: 'glossy', pattern: 'plain' });
+    s = dip(s, id(s), yellow, { depth: 0, edge: 'drips' })!;
+    expect(s.characters[0].layers[1]).toMatchObject({ reach: REACH.min, edge: 'drips' });
+    const fresh = rich();
+    expect(dip(fresh, id(fresh), red, { depth: 0 })!.characters[0].clayHeight).toBe(CLAY_HEIGHT.max);
+    expect(dip(fresh, id(fresh), red)!.characters[0].clayHeight).toBe(fresh.characters[0].clayHeight); // no shape: keeps its foot
+  });
+
+  test('scraping takes the top layer off for free, without giving the paint back', () => {
+    let s = rich();
+    s = dip(dip(s, id(s), red)!, id(s), yellow)!;
+    const scraped = scrape(s, id(s))!;
+    expect(scraped.characters[0].layers.map((l) => l.colour)).toEqual([red]);
+    expect(scraped.purse).toEqual(s.purse);
+    expect(scrape(scrape(scraped, id(s))!, id(s))).toBeNull(); // nothing left to scrape
+  });
+
+  test('drops come in any of its colours, and more layers mean more paint', () => {
+    const glazed = (colours: string[]): StudioState => {
+      const s = start('bouncy', 3);
+      return { ...s, characters: [{ ...s.characters[0], layers: colours.map((c) => defaultLayer(c)) }] };
+    };
+    const one = advance(glazed([red]), 20000).yields;
+    const three = advance(glazed([red, yellow, cobalt]), 20000).yields;
+    const paintShare = (ys: { what: string }[]) => ys.filter((y) => y.what !== 'clay').length / ys.length;
+    for (const c of [red, yellow, cobalt]) expect(total(three, c)).toBeGreaterThan(0);
+    expect(paintShare(one)).toBeCloseTo(PAINT_SHARE[1], 1);
+    expect(paintShare(three)).toBeCloseTo(PAINT_SHARE[3], 1);
+    expect(paintShare(three)).toBeGreaterThan(paintShare(one));
+  });
 });

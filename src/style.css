@@ -279,6 +279,12 @@ body {
 .decor-storage .btn { flex: 0 0 auto; }
 .decor-storage-label { font-weight: 600; font-size: 14px; margin-right: 4px; }
 .hud-book { border: 0; font: inherit; cursor: pointer; }
+.dip-body { display: flex; gap: 14px; align-items: flex-start; }
+.dip-preview canvas { display: block; border-radius: 14px; }
+.dip-controls { flex: 1; min-width: 0; }
+.dip-controls .sub:first-child { margin-top: 0; }
+.dip-controls .slider input { width: 100%; }
+@media (max-width: 760px) { .dip-body { flex-direction: column; align-items: center; } .dip-controls { width: 100%; } }
 .residents-chips { margin-bottom: 10px; }
 .residents { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }
 .resident { display: flex; align-items: center; gap: 10px; }

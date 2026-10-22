@@ -13,9 +13,11 @@ import { walkTo, type Agent } from '../plaza/behaviour';
 import { Decorator } from '../plaza/decorate';
 import {
   addTo, advance, BOWL_COST, bowlOf, buyBowl, growIsland, islandCost, ownsBowl, buyGhost, buyWell, collect, collectAway, comeBack, dip, dropOnGround, ghostCost,
-  nextGoal, startMix, wellCost, type Mixed, type Yield,
+  nextGoal, scrape, startMix, wellCost, type DipShape, type Mixed, type Yield,
 } from './economy';
 import { colourName, mixResult } from './mixing';
+import { openDipDialog } from './dip-dialog';
+import { CLAY_HEIGHT, MAX_LAYERS, REACH } from '../character/recipe';
 import { foundCount, noteFound, PAGES, REWARDS, source } from './book';
 import { bareGhost, MAX_GROUND, PRIMARIES, type Drop, type StudioState } from './state';
 import { buyItem, canAfford, giveClay, hasTrait, nextStep, soldOut, stepOf, STEPS, stock, tidyPickups, type Item } from './merchant';
@@ -1303,7 +1305,7 @@ export class Studio extends IslandView {
         const traits = s.traits[c.id] ?? [];
         const friend = bestFriend(s, c.id);
         const friendName = friend && s.characters.find((x) => x.id === friend)?.name;
-        const facts = [`${PERSONALITY_ICON[c.personality]} ${c.personality} · ${c.layers.length ? colourName(c.layers[0].colour) : 'bare clay'}`];
+        const facts = [`${PERSONALITY_ICON[c.personality]} ${c.personality} · ${c.layers.length ? glazeWords(c.layers, false) : 'bare clay'}`];
         const extra = [
           ...traits.map((t) => (t === 'tidy' ? '✨ Tidy' : '⚓ Seafarer')),
           ...(friendName ? [`🤝 ${friendName}`] : []),
@@ -1315,7 +1317,7 @@ export class Studio extends IslandView {
         return {
           id: c.id,
           name: c.name,
-          swatch: c.layers[0]?.colour ?? CLAY,
+          swatch: c.layers.at(-1)?.colour ?? CLAY, // the colour on top
           facts,
           tags: [c.personality, ...traits],
           actions: [
@@ -1399,39 +1401,75 @@ export class Studio extends IslandView {
     const friend = bestFriend(this.state, id);
     const friendName = friend && this.state.characters.find((c) => c.id === friend)?.name;
     if (friendName) parts.push(el('div', 'card-trait', `🤝 Best friend: ${friendName}`));
+    const owned = Object.entries(this.state.purse.paint).filter(([, n]) => n > 0);
+    const actions = el('div', 'card-actions');
     if (r.layers.length) {
-      parts.push(el('p', 'card-line', `Dipped in ${colourName(r.layers[0].colour)}. It sometimes drops that paint.`));
+      const line = el('p', 'card-line');
+      for (const l of [...r.layers].reverse()) line.append(this.dot(l.colour)); // top first
+      line.append(
+        ` ${glazeWords(r.layers)}. ` +
+          (r.layers.length > 1 ? 'It drops paint now and then, in any of its colours.' : 'It sometimes drops that paint.'),
+      );
+      parts.push(line);
     } else {
-      const owned = Object.entries(this.state.purse.paint).filter(([, n]) => n > 0);
-      if (!owned.length) {
-        parts.push(el('p', 'card-line', this.state.wellsBuilt ? 'Bare clay. Collect paint from the glaze well to dip it.' : 'Bare clay. Build a glaze well to make paint.'));
-      } else {
-        parts.push(el('p', 'card-line', 'Bare clay. Dip it in:'));
-        const swatches = el('div', 'chips');
-        for (const [colour, n] of owned) {
-          const b = button('', 'chip', () => this.dipCharacter(id, colour));
-          const dot = el('span', 'swatch-dot');
-          dot.style.background = colour;
-          b.append(dot, `${colourName(colour)} (${n})`);
-          swatches.append(b);
-        }
-        parts.push(swatches);
-      }
+      parts.push(
+        el('p', 'card-line', owned.length ? 'Bare clay, ready to dip.'
+          : this.state.wellsBuilt ? 'Bare clay. Collect paint from the glaze well to dip it.' : 'Bare clay. Build a glaze well to make paint.'),
+      );
     }
+    if (r.layers.length < MAX_LAYERS && owned.length) {
+      actions.append(button(r.layers.length ? 'Dip again…' : 'Dip…', 'btn primary', () => this.openDip(id)));
+    } else if (r.layers.length >= MAX_LAYERS) parts.push(el('p', 'muted card-line', 'Three layers: as many as it can take.'));
+    if (r.layers.length) actions.append(button('Scrape off top', 'btn', () => this.scrapeTop(id)));
+    if (actions.childElementCount) parts.push(actions);
     const close = el('div', 'card-actions');
     close.append(button('Close', 'btn', () => ((this.card.style.display = 'none'), (this.cardFor = null))));
     this.card.replaceChildren(...parts, close);
     this.card.style.display = '';
   }
 
-  private dipCharacter(id: string, colour: string) {
-    const next = dip(this.state, id, colour);
+  /** The dip dialog for a character: a paint you own, how far, and the edge, with a live preview. */
+  private openDip(id: string) {
+    const c = this.state.characters.find((x) => x.id === id);
+    const paints = Object.entries(this.state.purse.paint)
+      .filter(([, n]) => n > 0)
+      .map(([colour, n]) => ({ colour, name: colourName(colour), n }));
+    if (!c || !paints.length) return;
+    const first = !c.layers.length;
+    openDipDialog({
+      name: c.name || 'them',
+      first,
+      // Start where it is now: the first dip from its current foot, later ones about halfway down.
+      depth: first ? (CLAY_HEIGHT.max - c.clayHeight) / (CLAY_HEIGHT.max - CLAY_HEIGHT.min) : (0.5 - REACH.min) / (REACH.max - REACH.min),
+      paints,
+      preview: (colour, shape) => dip(this.state, id, colour, shape)?.characters.find((x) => x.id === id) ?? null,
+      dip: (colour, shape) => this.dipCharacter(id, colour, shape),
+    });
+  }
+
+  private dipCharacter(id: string, colour: string, shape: DipShape = {}) {
+    const next = dip(this.state, id, colour, shape);
     if (!next) return;
     this.state = next;
     this.syncHome();
     const agent = this.agents.find((a) => a.recipe.id === id);
     if (agent) this.say(agent, '✨');
     this.firstTime('dip', '💖', agent);
+    this.persist();
+    this.render();
+    this.showCard(id);
+  }
+
+  /** Scrape the top layer off (after asking): free, but the paint isn't given back. */
+  private scrapeTop(id: string) {
+    const c = this.state.characters.find((x) => x.id === id);
+    if (!c?.layers.length) return;
+    const top = colourName(c.layers.at(-1)!.colour);
+    if (!confirm(`Scrape the ${top} layer off ${c.name || 'them'}? It's free, but the paint won't come back.`)) return;
+    const next = scrape(this.state, id);
+    if (!next) return;
+    this.state = next;
+    this.syncHome();
     this.persist();
     this.render();
     this.showCard(id);
@@ -1552,6 +1590,12 @@ function makeDrop(d: Drop): THREE.Object3D {
 }
 
 /** Replay the little bump of a counter that just changed. */
+/** "Dipped in cobalt over white" (top first), or just "cobalt over white". */
+function glazeWords(layers: { colour: string }[], dipped = true) {
+  const words = [...layers].reverse().map((l) => colourName(l.colour)).join(' over ');
+  return dipped ? `Dipped in ${words}` : words;
+}
+
 function bump(chip: HTMLElement) {
   chip.classList.remove('bump');
   void chip.offsetWidth; // restart the animation
