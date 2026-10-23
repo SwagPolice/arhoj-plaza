@@ -109,7 +109,7 @@ export const GOLDEN_STUDIO = {
 export const ADDED_SINCE_STUDIO_V1 = {
   bowl: null,
   discovered: [],
-  merchant: { here: false, wait: 20, stay: 0, paid: 0, visits: 0, offers: null, last: [], order: null, delivery: null },
+  merchant: { here: false, wait: 20, stay: 0, paid: 0, visits: 0, offers: null, last: [], orders: [], deliveries: [] },
   traits: {},
   harbour: { level: 0, trip: null, haul: null, trips: {} },
   storage: [],
@@ -117,6 +117,7 @@ export const ADDED_SINCE_STUDIO_V1 = {
   friends: {},
   stars: { wait: 1200, seen: 0 },
   book: { found: [], rewards: 0 },
+  levels: {},
 };
 
 // An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.

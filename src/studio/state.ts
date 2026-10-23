@@ -31,18 +31,19 @@ export type Order = { id: string; clay: number; paint?: { colour: string; n: num
  * The balloon merchant: whether he's here, seconds until he comes or until he goes, clay paid to him so far,
  * and what he brought this visit (null until it's packed: on arrival, or for saves from before baskets).
  * Added later, for the lighthouse: what was in his basket last visit (`last`, item ids), what you've ordered from it
- * (`order`), and an ordered trait item he brought that still needs someone to give it to (`delivery`).
+ * (`orders`, one of each thing; more with an upgraded lighthouse), and ordered trait items he brought that still need
+ * someone to give them to (`deliveries`). Saves from when there could only be one order kept `order` and `delivery`.
  */
 export type Merchant = {
   here: boolean; wait: number; stay: number; paid: number; visits: number; offers: Offer[] | null;
-  last: string[]; order: Order | null; delivery: string | null;
+  last: string[]; orders: Order[]; deliveries: string[];
 };
 export const FIRST_VISIT = 20; // seconds after the mixing bowl is built
 
 /** One thing an expedition brought back, and who found it. `what` is 'clay', a paint colour, or a decoration kind. */
 export type Find = { who: string; what: string; amount: number };
 /**
- * The harbour: its boat (level 1 = the bigger boat), the trip at sea if any (seconds left), what's waiting in the
+ * The harbour: its level (1 = the bigger boat, 2 = swift sails), the trip at sea if any (seconds left), what's waiting in the
  * crate, and how many trips each character has made (three make a Seafarer).
  */
 export type Harbour = {
@@ -86,13 +87,14 @@ export type StudioState = {
   friends: Record<string, number>; // friendship 0–1 by pair, 'idA|idB' sorted (added after v1 shipped: missing = none)
   stars: Stars; // the next shooting star (added after v1 shipped: missing = none seen yet)
   book: { found: string[]; rewards: number }; // the palette book: colours found, rewards handed out (added later: missing = empty)
+  levels: Record<string, number>; // upgrade levels of wells, the bowl and the lighthouse, by id (added later: missing = level 0)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
 };
 
 export const emptyPurse = (): Purse => ({ clay: 0, paint: {} });
-const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0, offers: null, last: [], order: null, delivery: null });
+const newMerchant = (): Merchant => ({ here: false, wait: FIRST_VISIT, stay: 0, paid: 0, visits: 0, offers: null, last: [], orders: [], deliveries: [] });
 
 /** A bare clay ghost: no glaze yet, everything else picked at random (or by you). */
 export function bareGhost(over: Partial<CharacterRecipe> = {}): CharacterRecipe {
@@ -121,6 +123,7 @@ export function newStudio(now = Date.now()): StudioState {
     friends: {},
     stars: newStars(),
     book: { found: [], rewards: 0 },
+    levels: {},
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -200,8 +203,11 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
       ? m.offers.filter(isObj).filter((x) => typeof x.id === 'string').map((x) => ({ id: x.id as string, left: whole(x.left, 0) }))
       : null,
     last: Array.isArray(m.last) ? m.last.filter((x): x is string => typeof x === 'string') : [],
-    order: isObj(m.order) && typeof m.order.id === 'string' ? order(m.order) : null,
-    delivery: typeof m.delivery === 'string' ? m.delivery : null,
+    orders: (Array.isArray(m.orders) ? m.orders : [m.order]) // (one `order`, before lighthouse upgrades)
+      .filter((x): x is Raw => isObj(x) && typeof x.id === 'string')
+      .map(order)
+      .filter((x, i, all) => all.findIndex((y) => y.id === x.id) === i),
+    deliveries: (Array.isArray(m.deliveries) ? m.deliveries : [m.delivery]).filter((x): x is string => typeof x === 'string'),
   };
   const ids = new Set(characters.map((c) => c.id));
   const traits: Record<string, Trait[]> = {};
@@ -222,7 +228,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
   const trips: Record<string, number> = {};
   if (isObj(h.trips)) for (const [id, n] of Object.entries(h.trips)) if (whole(n, 0)) trips[id] = whole(n, 0);
   const harbour: Harbour = {
-    level: whole(h.level, 0),
+    level: Math.min(2, whole(h.level, 0)),
     trip,
     haul: isObj(h.haul) && typeof h.haul.to === 'string' && finds.length ? { to: h.haul.to, finds } : null,
     trips,
@@ -256,6 +262,8 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     found: Array.isArray(bk.found) ? [...new Set(bk.found.filter((c): c is string => typeof c === 'string' && isHex(c)).map((c) => c.toLowerCase()))] : [],
     rewards: whole(bk.rewards, 0),
   };
+  const levels: Record<string, number> = {};
+  if (isObj(o.levels)) for (const [id, v] of Object.entries(o.levels)) if (whole(v, 0) > 0) levels[id] = Math.min(2, whole(v, 0));
   const st = isObj(o.stars) ? o.stars : {};
   const stars: Stars = { wait: count(st.wait, FIRST_STAR), seen: whole(st.seen, 0) };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
@@ -281,6 +289,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     friends,
     stars,
     book,
+    levels,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

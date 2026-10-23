@@ -49,7 +49,7 @@ export abstract class IslandView implements Mode {
     this.hemi = addLights(this.scene, 13, new THREE.Vector3(6, 12, 8)).hemi;
 
     this.layout = layout;
-    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor);
+    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor, this.decorLevels());
     this.scene.add(this.island.group);
     this.world = this.island.world;
 
@@ -106,6 +106,10 @@ export abstract class IslandView implements Mode {
   }
   /** Colours for glaze wells' water, by well id (Studio Mode). */
   protected wellTints(): Record<string, string> {
+    return {};
+  }
+  /** How far each building has been upgraded, by id (Studio Mode): it shows on them. */
+  protected decorLevels(): Record<string, number> {
     return {};
   }
 
@@ -198,7 +202,7 @@ export abstract class IslandView implements Mode {
     this.layout = layout;
     this.scene.remove(this.island.group);
     disposeObject(this.island.group);
-    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor);
+    this.island = buildIsland(layout, this.wellTints(), this.withFlowers, this.plainDecor, this.decorLevels());
     this.scene.add(this.island.group);
     this.world = this.island.world;
     this.fitToIsland();
@@ -281,6 +285,7 @@ export abstract class IslandView implements Mode {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    this.scene.updateMatrixWorld(); // in case the island was just rebuilt and hasn't been drawn yet
   }
 
   /** The character under the pointer, if any. */

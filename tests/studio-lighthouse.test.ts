@@ -85,7 +85,7 @@ describe('ordering', () => {
     expect(r.state.purse.clay).toBe(s.purse.clay - 19);
     expect(r.state.purse.paint[PRIMARIES.cobalt]).toBe(2);
     expect(r.state.merchant.paid).toBe(s.merchant.paid + 19);
-    expect(r.state.merchant.order).toEqual({ id: 'seaglass', clay: 19, paint: { colour: PRIMARIES.cobalt, n: 1 } });
+    expect(r.state.merchant.orders).toEqual([{ id: 'seaglass', clay: 19, paint: { colour: PRIMARIES.cobalt, n: 1 } }]);
   });
 
   test('one order between visits, only while he is away, only what he last brought, and only with a lighthouse', () => {
@@ -103,10 +103,10 @@ describe('ordering', () => {
     const s = lit();
     const r = orderItem(s, 'seaglass');
     if (!('state' in r)) throw new Error(r.why);
-    const back = cancelOrder(r.state)!;
+    const back = cancelOrder(r.state, 'seaglass')!;
     expect(back.purse).toEqual(s.purse);
     expect(back.merchant).toEqual(s.merchant);
-    expect(cancelOrder(back)).toBeNull();
+    expect(cancelOrder(back, 'seaglass')).toBeNull();
   });
 });
 
@@ -115,12 +115,12 @@ describe('delivery', () => {
     const r = orderItem(lit(), 'seaglass');
     if (!('state' in r)) throw new Error(r.why);
     const before = advance(r.state, 599);
-    expect(before.state.merchant.order).not.toBeNull(); // not yet
+    expect(before.state.merchant.orders).toHaveLength(1); // not yet
     const came = advance(before.state, 1);
     expect(came.visit).toBe('arrived');
-    expect(came.delivered?.id).toBe('seaglass');
-    expect(came.state.merchant.order).toBeNull();
-    expect(came.state.merchant.delivery).toBeNull();
+    expect(came.delivered.map((i) => i.id)).toEqual(['seaglass']);
+    expect(came.state.merchant.orders).toEqual([]);
+    expect(came.state.merchant.deliveries).toEqual([]);
     expect(came.state.storage.map((d) => d.kind)).toEqual(['seaglass']);
   });
 
@@ -128,7 +128,7 @@ describe('delivery', () => {
     const r = orderItem(lit(), 'broom');
     if (!('state' in r)) throw new Error(r.why);
     const came = advance(r.state, 600);
-    expect(came.delivered).toBeNull();
+    expect(came.delivered).toEqual([]);
     expect(waiting(came.state)?.id).toBe('broom');
     expect(nextGoal({ ...came.state, merchant: { ...came.state.merchant, here: false } })).toContain('lighthouse'); // once he's gone
     expect(handOver(came.state, 'nobody')).toBeNull();

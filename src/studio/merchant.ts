@@ -161,7 +161,7 @@ export function stepVisit(
       left -= now.wait;
       now = { ...now, here: true, wait: 0, stay: stayFor, visits: now.visits + 1, offers: packBasket(step, rand) };
       // He brings what was ordered from the lighthouse (economy.ts puts it in storage, or waits for who gets it).
-      if (now.order) now = { ...now, order: null, delivery: now.delivery ?? now.order.id };
+      if (now.orders.length) now = { ...now, orders: [], deliveries: [...now.deliveries, ...now.orders.map((o) => o.id)] };
     } else {
       if (soldOut(now)) now = { ...now, stay: 0 }; // nothing left to sell: off he goes, and his time away starts
       if (now.stay > left) {

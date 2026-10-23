@@ -24,15 +24,17 @@ import { buyItem, canAfford, giveClay, hasTrait, nextStep, soldOut, stepOf, STEP
 import { MerchantBalloon } from './merchant-view';
 import { canDye, dye, putAway, stored, takeOut } from './storage';
 import {
-  atSea, BIG_BOAT_COST, buyBigBoat, buyHarbour, collectHaul, crewLimit, destination, DESTINATIONS, findsFor, HARBOUR_COST, harbourOf,
-  harbourUnlocked, isOpen, setSail,
+  atSea, buyHarbour, collectHaul, crewLimit, destination, DESTINATIONS, findsFor, HARBOUR_COST, harbourOf,
+  harbourUnlocked, isOpen, setSail, tripTime,
 } from './harbour';
 import { HarbourView } from './harbour-view';
 import { cantLeave, NAME_MAX, rename, sayGoodbye } from './residents';
 import { openResidents, type Resident, type ResidentsDialog } from '../ui/residents';
 import {
-  buyLighthouse, canReceive, cancelOrder, handOver, lastBasket, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, waiting,
+  buyLighthouse, canReceive, cancelOrder, handOver, lastBasket, LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, orderItem, orderPrice, ordersAllowed,
+  waiting,
 } from './lighthouse';
+import { levelOf, MAX_LEVEL, nextUpgrade, upgradable, upgrade, UPGRADES, WELL_EVERY, type Upgradable } from './upgrades';
 import { bestFriend, chatted, comfortHere, happiness, hearts, petted, settleComfort } from './happiness';
 import type { Find } from './state';
 
@@ -256,6 +258,12 @@ export class Studio extends IslandView {
     return this.state?.wellTints ?? {};
   }
 
+  protected decorLevels() {
+    const levels: Record<string, number> = {};
+    for (const d of this.state?.island.items ?? []) if (upgradable(d.kind)) levels[d.id] = levelOf(this.state, d);
+    return levels;
+  }
+
   // While arranging, everyone holds still and the camera may zoom out further.
   protected get frozen() {
     return !!this.decorator?.active;
@@ -328,6 +336,10 @@ export class Studio extends IslandView {
     const bowl = bowlOf(this.state);
     const bowlObj = bowl && this.island.decor.get(bowl.id);
     if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
+    const well = this.state.island.items.find(
+      (d) => d.kind === 'well' && this.raycaster.intersectObject(this.island.decor.get(d.id) ?? new THREE.Group(), true).length,
+    );
+    if (well) return this.openWell(well.id);
     if (this.merchant.hit(this.raycaster)) return this.openShop();
     const harbour = harbourOf(this.state);
     const harbourObj = harbour && this.island.decor.get(harbour.id);
@@ -609,6 +621,22 @@ export class Studio extends IslandView {
 
   // ---------- mixing ----------
 
+  /** A glaze well: how often it makes paint, and its upgrades. */
+  private openWell(id: string) {
+    const body = el('div');
+    const draw = () => {
+      const w = this.state.island.items.find((d) => d.id === id);
+      if (!w) return;
+      const every = WELL_EVERY[levelOf(this.state, w)];
+      body.replaceChildren(
+        el('p', '', `It makes a paint every ${every} seconds: red, yellow or cobalt, a little of each.`),
+        this.upgradeRow(id, draw),
+      );
+    };
+    draw();
+    openDialog('Glaze well', [body]);
+  }
+
   /** The mixing bowl: pick two paints, see what they make if you've made it before, and mix. */
   private openMixer() {
     if (this.state.bowl) return this.toast('Still stirring…');
@@ -657,6 +685,9 @@ export class Studio extends IslandView {
       mixBtn.classList.toggle('off', picked.length < 2);
     };
     draw();
+    const upgrades = el('div');
+    const drawUpgrade = () => upgrades.replaceChildren(this.upgradeRow(bowlOf(this.state)!.id, drawUpgrade));
+    drawUpgrade();
     const book = button(`📖 Palette book · ${foundCount(this.state)} of ${PAGES.length} found`, 'btn', () => {
       dialog.close();
       this.openBook();
@@ -668,6 +699,7 @@ export class Studio extends IslandView {
       chips,
       row(mixBtn),
       row(book),
+      upgrades,
     ]);
   }
 
@@ -704,7 +736,7 @@ export class Studio extends IslandView {
     const obj = bowl && this.island.decor.get(bowl.id);
     if (!obj) return;
     const mix = this.state.bowl;
-    for (const [i, half] of obj.children.slice(1).entries()) {
+    for (const [i, half] of obj.children.slice(1, 3).entries()) { // its two paint halves (the upgrade bands come after)
       if (!(half instanceof THREE.Mesh)) continue;
       half.visible = !!mix;
       if (!mix) continue;
@@ -715,12 +747,14 @@ export class Studio extends IslandView {
 
   // ---------- the merchant ----------
 
-  private onVisit(visit: 'arrived' | 'left', sold = false, delivered: Item | null = null) {
+  private onVisit(visit: 'arrived' | 'left', sold = false, delivered: Item[] = []) {
     if (visit === 'arrived') {
       this.merchant.arrive(STEPS[stepOf(this.state)].scale);
       this.lighthouseDialog?.close();
       const ordered = waiting(this.state);
-      if (delivered) this.toast(`The merchant is back, with your ${delivered.name.toLowerCase()}! It's in your storage.`);
+      const names = delivered.map((d) => d.name.toLowerCase());
+      const list = names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+      if (delivered.length) this.toast(`The merchant is back, with your ${list}! ${delivered.length > 1 ? "They're" : "It's"} in your storage.${ordered ? ' Tap the lighthouse to give out the rest.' : ''}`);
       else if (ordered) this.toast(`The merchant is back, with your ${ordered.name.toLowerCase()}! Tap the lighthouse to give it to someone.`);
       else this.toast(this.state.merchant.visits === 1 ? 'A balloon is coming! The merchant has arrived: tap him to see what he brought.' : 'The merchant is back! Tap him to see what he brought.');
     } else {
@@ -951,7 +985,7 @@ export class Studio extends IslandView {
       places.replaceChildren(
         ...DESTINATIONS.map((d) => {
           const open = isOpen(this.state, d);
-          const b = button(`${d.name} · ${duration(d.seconds)}`, 'chip' + (d.id === to ? ' on' : '') + (open ? '' : ' off'), () => {
+          const b = button(`${d.name} · ${duration(tripTime(this.state, d))}`, 'chip' + (d.id === to ? ' on' : '') + (open ? '' : ' off'), () => {
             if (!open) return this.toast("The merchant hasn't found the way there yet.");
             to = d.id;
             draw();
@@ -981,20 +1015,11 @@ export class Studio extends IslandView {
       sail.classList.toggle('off', !crew.length || !to);
     };
     draw();
-    const extra: HTMLElement[] = [];
-    if (s.harbour.level < 1) {
-      const big = button(`Bigger boat (takes 5) · ${BIG_BOAT_COST} clay`, 'btn' + (s.purse.clay >= BIG_BOAT_COST ? '' : ' off'), () => {
-        const next = buyBigBoat(this.state);
-        if (!next) return this.toast(`A bigger boat costs ${BIG_BOAT_COST} clay.`);
-        this.state = next;
-        this.persist();
-        this.render();
-        big.remove();
-        this.toast('A bigger boat! Now 5 can go.');
-        draw();
-      });
-      extra.push(row(big));
-    }
+    // Upgrades (the bigger boat, then swift sails), redrawn in place after one.
+    const upgrades = el('div');
+    const drawUpgrade = () => upgrades.replaceChildren(this.upgradeRow(harbourOf(this.state)!.id, () => (drawUpgrade(), draw())));
+    drawUpgrade();
+    const extra: HTMLElement[] = [upgrades];
     const dialog = openDialog('Send an expedition', [
       el('div', 'sub', 'Where to?'),
       places,
@@ -1064,7 +1089,7 @@ export class Studio extends IslandView {
     if (spin) spin.rotation.y += dt * ((Math.PI * 2) / 14); // once round every 14 seconds
     const beam = obj.getObjectByName('beam');
     if (beam instanceof THREE.Mesh) {
-      const signalling = !!this.state.merchant.order;
+      const signalling = this.state.merchant.orders.length > 0;
       (beam.material as THREE.MeshBasicMaterial).opacity = signalling ? 0.4 + 0.35 * Math.max(0, Math.sin(t * 3)) : 0.4;
     }
   }
@@ -1098,69 +1123,93 @@ export class Studio extends IslandView {
       this.lighthouseDialog = dialog;
       return;
     }
-    if (s.merchant.here) {
-      this.lighthouseDialog = openDialog('The lighthouse', [el('p', '', 'The merchant is here right now: tap him to see what he brought.')]);
-      return;
-    }
-    const order = s.merchant.order;
-    if (order) {
-      const item = lastBasket(s).find((i) => i.id === order.id) ?? stock(s).find((i) => i.id === order.id);
-      const name = item ? `${item.icon} ${item.name}` : 'your order';
-      const dialog = openDialog('The lighthouse', [
-        el('p', '', `The light is signalling for ${name}. He'll bring it on his next visit.`),
-        el('p', 'muted', 'Changed your mind? Cancel before he comes and everything you paid comes back.'),
-        row(
-          button('Cancel the order', 'btn', () => {
-            const next = cancelOrder(this.state);
-            if (!next) return;
-            this.state = next;
-            this.toast('Order cancelled: everything you paid is back.');
-            this.persist();
-            this.render();
-            dialog.close();
-          }),
-        ),
-      ]);
-      this.lighthouseDialog = dialog;
-      return;
-    }
-    const items = lastBasket(s);
-    const rows = items.map((item) => {
-      const price = orderPrice(item);
-      const r = el('div', 'shop-row');
-      const text = el('div', 'shop-text');
-      text.append(el('div', 'shop-name', `${item.icon} ${item.name}`), el('div', 'muted shop-blurb', item.blurb));
-      const cost = el('div', 'shop-price', `${price.clay} clay`);
-      if (price.paint) {
-        cost.append(' + ', this.dot(price.paint.colour), `${price.paint.n}`);
-      }
-      const ok = canReceive(s, item);
-      const affordable = s.purse.clay >= price.clay && (!price.paint || (s.purse.paint[price.paint.colour] ?? 0) >= price.paint.n);
-      const buy = button('Order', 'btn' + (ok && affordable ? ' primary' : ' off'), () => {
-        const r = orderItem(this.state, item.id);
-        if (!('state' in r)) {
-          return this.toast(
-            r.why === 'cost' ? `Ordering the ${item.name.toLowerCase()} costs ${price.clay} clay${price.paint ? ` and ${price.paint.n} ${colourName(price.paint.colour)} paint` : ''}.`
-            : r.why === 'who' ? 'Everyone already has one!'
-            : "You can't order that right now.",
-          );
+    const lighthouse = lighthouseOf(s)!;
+    const body = el('div', 'shop');
+    const draw = () => {
+      const s = this.state;
+      const allowed = ordersAllowed(s);
+      const parts: HTMLElement[] = [];
+      if (s.merchant.here) parts.push(el('p', '', 'The merchant is here right now: tap him to see what he brought.'));
+      else {
+        const items = lastBasket(s);
+        parts.push(
+          el('p', 'muted', !items.length
+            ? "Its light reaches the merchant out at sea. Once he's visited again, you can order from what he brought."
+            : `Its light reaches the merchant out at sea. Order ${allowed > 1 ? `up to ${allowed} things` : 'one thing'} from his last basket (even if it sold out) and he'll bring ${allowed > 1 ? 'them' : 'it'} next time, for a quarter more clay. Cancel before he comes and everything you paid comes back.`),
+        );
+        for (const item of items) {
+          const price = orderPrice(item);
+          const ordered = s.merchant.orders.some((o) => o.id === item.id);
+          const r = el('div', 'shop-row' + (ordered ? ' ordered' : ''));
+          const text = el('div', 'shop-text');
+          text.append(el('div', 'shop-name', `${item.icon} ${item.name}${ordered ? ' · ordered' : ''}`), el('div', 'muted shop-blurb', item.blurb));
+          const cost = el('div', 'shop-price', `${price.clay} clay`);
+          if (price.paint) cost.append(' + ', this.dot(price.paint.colour), `${price.paint.n}`);
+          const full = s.merchant.orders.length >= allowed;
+          const affordable = s.purse.clay >= price.clay && (!price.paint || (s.purse.paint[price.paint.colour] ?? 0) >= price.paint.n);
+          const act = ordered
+            ? button('Cancel', 'btn', () => {
+                const next = cancelOrder(this.state, item.id);
+                if (!next) return;
+                this.state = next;
+                this.toast('Order cancelled: everything you paid is back.');
+                this.persist();
+                this.render();
+                draw();
+              })
+            : button('Order', 'btn' + (!full && affordable && canReceive(s, item) ? ' primary' : ' off'), () => {
+                const r = orderItem(this.state, item.id);
+                if (!('state' in r)) {
+                  return this.toast(
+                    r.why === 'cost' ? `Ordering the ${item.name.toLowerCase()} costs ${price.clay} clay${price.paint ? ` and ${price.paint.n} ${colourName(price.paint.colour)} paint` : ''}.`
+                    : r.why === 'who' ? 'Everyone already has one!'
+                    : r.why === 'busy' ? (allowed > 1 ? `That's ${allowed} orders already: as many as the light can carry.` : 'One order at a time: an upgraded lamp can carry more.')
+                    : "You can't order that right now.",
+                  );
+                }
+                this.state = r.state;
+                this.toast(`The light flashes out to sea: he'll bring the ${item.name.toLowerCase()} next time.`);
+                this.persist();
+                this.render();
+                draw();
+              });
+          r.append(text, cost, act);
+          parts.push(r);
         }
-        this.state = r.state;
-        this.toast(`The light flashes out to sea: he'll bring the ${item.name.toLowerCase()} next time.`);
-        this.persist();
-        this.render();
-        dialog.close();
-      });
-      r.append(text, cost, buy);
-      return r;
-    });
-    const dialog = openDialog('The lighthouse', [
-      el('p', 'muted', items.length
-        ? "Its light reaches the merchant out at sea. Order one thing from his last basket (even if it sold out) and he'll bring it next time, for a quarter more clay."
-        : "Its light reaches the merchant out at sea. Once he's visited again, you can order from what he brought."),
-      ...rows,
-    ]);
-    this.lighthouseDialog = dialog;
+      }
+      parts.push(this.upgradeRow(lighthouse.id, draw));
+      body.replaceChildren(...parts);
+    };
+    draw();
+    this.lighthouseDialog = openDialog('The lighthouse', [body]);
+  }
+
+  /** The upgrade part of a building's dialog: what the next level does and costs, or that it's fully upgraded. */
+  private upgradeRow(id: string, after: () => void): HTMLElement {
+    const box = el('div', 'upgrade');
+    const d = this.state.island.items.find((x) => x.id === id);
+    if (!d) return box;
+    const next = nextUpgrade(this.state, d);
+    if (!next) {
+      box.append(el('p', 'muted', `✦✦ Fully upgraded: ${UPGRADES[d.kind as Upgradable][MAX_LEVEL - 1].name.toLowerCase()}.`));
+      return box;
+    }
+    box.append(el('div', 'sub', `${'✦'.repeat(next.level - 1)}${'✧'.repeat(MAX_LEVEL - next.level + 1)} Upgrade: ${next.name}`), el('p', 'muted', next.does));
+    box.append(
+      row(
+        button(`Upgrade · ${next.cost} clay`, 'btn' + (this.state.purse.clay >= next.cost ? ' primary' : ' off'), () => {
+          const up = upgrade(this.state, id);
+          if (!up) return this.toast(`${next.name} costs ${next.cost} clay. Keep collecting!`);
+          this.state = up;
+          this.applyLayout(up.island); // it looks a little different at each level
+          this.persist();
+          this.render();
+          this.toast(`${next.name}! ${next.does}`);
+          after();
+        }),
+      ),
+    );
+    return box;
   }
 
   /** "Pip", "Pip and Mochi", "Pip, Mochi and Bo" (by character id). */

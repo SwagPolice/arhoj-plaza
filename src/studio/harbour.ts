@@ -9,9 +9,10 @@ import { DECOR_KINDS, placeAtEdge, type DecorKind } from '../scene/layout';
 import { store } from './storage';
 import { giveTrait, hasTrait, stepOf } from './merchant';
 import { PRIMARIES, type Find, type Harbour, type StudioState } from './state';
+import { TRIP_TIME, upgrade, UPGRADES } from './upgrades';
 
 export const HARBOUR_COST = 300;
-export const BIG_BOAT_COST = 400;
+export const BIG_BOAT_COST = UPGRADES.harbour[0].cost; // its first upgrade
 export const SEAFARER_TRIPS = 3; // trips that make a character a Seafarer
 
 const hex = (name: string) => GLAZES.find((g) => g.name === name)!.hex;
@@ -56,6 +57,9 @@ export const isOpen = (s: StudioState, d: Destination) => s.merchant.visits > 0 
 /** Characters away on the boat right now. */
 export const atSea = (s: StudioState) => new Set(s.harbour.trip?.crew ?? []);
 
+/** How long a trip there takes from this harbour (swift sails make it shorter). */
+export const tripTime = (s: StudioState, d: Destination) => Math.round(d.seconds * TRIP_TIME[Math.min(2, s.harbour.level)]);
+
 /** Finds each crew member makes: the destination's base, +1 if curious, +1 for a Seafarer. */
 export function findsFor(s: StudioState, d: Destination, id: string) {
   const c = s.characters.find((r) => r.id === id);
@@ -70,8 +74,8 @@ export function buyHarbour(s: StudioState): StudioState | null {
 }
 
 export function buyBigBoat(s: StudioState): StudioState | null {
-  if (!harbourOf(s) || s.harbour.level >= 1 || s.purse.clay < BIG_BOAT_COST) return null;
-  return { ...s, purse: { ...s.purse, clay: s.purse.clay - BIG_BOAT_COST }, harbour: { ...s.harbour, level: 1 } };
+  const h = harbourOf(s);
+  return h && s.harbour.level < 1 ? upgrade(s, h.id) : null;
 }
 
 export type Sailing = { state: StudioState } | { why: 'harbour' | 'busy' | 'haul' | 'closed' | 'crew' };
@@ -85,7 +89,7 @@ export function setSail(s: StudioState, to: string, crew: string[]): Sailing {
   if (!d || !isOpen(s, d)) return { why: 'closed' };
   const ids = [...new Set(crew)];
   if (!ids.length || ids.length > crewLimit(s) || ids.some((id) => !s.characters.some((c) => c.id === id))) return { why: 'crew' };
-  return { state: { ...s, harbour: { ...s.harbour, trip: { to, crew: ids, left: d.seconds } } } };
+  return { state: { ...s, harbour: { ...s.harbour, trip: { to, crew: ids, left: tripTime(s, d) } } } };
 }
 
 /** What a crew brings back: rolled per crew member, rarer when shy ones are aboard. Same seed, same haul. */

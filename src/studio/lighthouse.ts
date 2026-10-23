@@ -1,13 +1,14 @@
 /*
  * The lighthouse's rules, as pure functions like merchant.ts. Once the merchant can reach the coast he can see
- * its light, out on its own little island just offshore: from it you can order one thing from his last basket (sold out or not), for a little extra, and he
- * brings it on his next visit. Nothing in his basket is lost for good.
+ * its light, out on its own little island just offshore: from it you can order from his last basket (sold out or not),
+ * one thing or more once upgraded, for a little extra, and he brings them on his next visit. Nothing in his basket is lost for good.
  * All numbers are first guesses; tests/studio-lighthouse.test.ts checks them.
  */
 import { MAX_DECOR, newDecorId, toSea } from '../scene/layout';
 import { giveTrait, hasTrait, ITEMS, stepOf, type Item } from './merchant';
 import { store } from './storage';
 import type { Order, StudioState } from './state';
+import { levelOf, ORDERS } from './upgrades';
 
 export const LIGHTHOUSE_COST = 400;
 /** Where its island goes: behind the big one, a little to the right, where there's sky for it to stand tall against. */
@@ -40,13 +41,23 @@ export const lastBasket = (s: StudioState): Item[] => ITEMS.filter((i) => s.merc
 export const canReceive = (s: StudioState, item: Item) =>
   !item.trait || s.characters.some((c) => !hasTrait(s, c.id, item.trait!) && (s.traits[c.id] ?? []).length < 3);
 
-export type Ordered = { state: StudioState } | { why: 'lighthouse' | 'here' | 'busy' | 'stock' | 'cost' | 'who' };
+export type Ordered = { state: StudioState } | { why: 'lighthouse' | 'here' | 'busy' | 'twice' | 'stock' | 'cost' | 'who' };
 
-/** Signal him for one thing from his last basket. One order between visits; you pay now, and it counts towards his trip. */
+/** How many things you can order between his visits: 1, or more from an upgraded lighthouse. */
+export function ordersAllowed(s: StudioState) {
+  const l = lighthouseOf(s);
+  return l ? ORDERS[levelOf(s, l)] : 0;
+}
+
+/**
+ * Signal him for something from his last basket. As many orders between visits as the lighthouse allows, one of
+ * each thing; you pay now, and it counts towards his trip.
+ */
 export function orderItem(s: StudioState, id: string): Ordered {
   if (!lighthouseOf(s)) return { why: 'lighthouse' };
   if (s.merchant.here) return { why: 'here' };
-  if (s.merchant.order || s.merchant.delivery) return { why: 'busy' };
+  if (s.merchant.orders.length >= ordersAllowed(s)) return { why: 'busy' };
+  if (s.merchant.orders.some((o) => o.id === id)) return { why: 'twice' };
   const item = lastBasket(s).find((i) => i.id === id);
   if (!item) return { why: 'stock' };
   if (!canReceive(s, item)) return { why: 'who' };
@@ -57,37 +68,46 @@ export function orderItem(s: StudioState, id: string): Ordered {
     state: {
       ...s,
       purse: { clay: s.purse.clay - price.clay, paint },
-      merchant: { ...s.merchant, paid: s.merchant.paid + price.clay, order: price },
+      merchant: { ...s.merchant, paid: s.merchant.paid + price.clay, orders: [...s.merchant.orders, price] },
     },
   };
 }
 
-/** Change your mind before he comes: everything you paid comes back. */
-export function cancelOrder(s: StudioState): StudioState | null {
-  const o = s.merchant.order;
+/** Change your mind about one order before he comes: everything you paid for it comes back. */
+export function cancelOrder(s: StudioState, id: string): StudioState | null {
+  const o = s.merchant.orders.find((x) => x.id === id);
   if (!o) return null;
   const paint = o.paint ? { ...s.purse.paint, [o.paint.colour]: (s.purse.paint[o.paint.colour] ?? 0) + o.paint.n } : s.purse.paint;
   return {
     ...s,
     purse: { clay: s.purse.clay + o.clay, paint },
-    merchant: { ...s.merchant, paid: Math.max(0, s.merchant.paid - o.clay), order: null },
+    merchant: { ...s.merchant, paid: Math.max(0, s.merchant.paid - o.clay), orders: s.merchant.orders.filter((x) => x !== o) },
   };
 }
 
 /**
- * He's brought what you ordered: a decoration goes straight into storage. A trait item waits (`delivery`) until
- * you pick who gets it (`handOver`). `delivered` is the item that just went into storage, if any.
+ * He's brought what you ordered: decorations go straight into storage. Trait items wait (`deliveries`) until
+ * you pick who gets each (`handOver`). `delivered` is what just went into storage.
  */
-export function unpack(s: StudioState): { state: StudioState; delivered: Item | null } {
-  const item = ITEMS.find((i) => i.id === s.merchant.delivery);
-  if (!item) return { state: s.merchant.delivery ? { ...s, merchant: { ...s.merchant, delivery: null } } : s, delivered: null };
-  if (!item.decor) return { state: s, delivered: null };
-  return { state: { ...store(s, item.decor), merchant: { ...s.merchant, delivery: null } }, delivered: item };
+export function unpack(s: StudioState): { state: StudioState; delivered: Item[] } {
+  if (!s.merchant.deliveries.length) return { state: s, delivered: [] };
+  let next = s;
+  const delivered: Item[] = [];
+  const keep: string[] = [];
+  for (const id of s.merchant.deliveries) {
+    const item = ITEMS.find((i) => i.id === id);
+    if (item?.decor) {
+      next = store(next, item.decor);
+      delivered.push(item);
+    } else if (item?.trait) keep.push(id); // waits for who gets it; anything unknown is dropped
+  }
+  if (keep.length === s.merchant.deliveries.length) return { state: s, delivered };
+  return { state: { ...next, merchant: { ...next.merchant, deliveries: keep } }, delivered };
 }
 
-/** The trait item he brought, if one is waiting for someone. */
+/** The next trait item he brought, if one is waiting for someone. */
 export const waiting = (s: StudioState): Item | null => {
-  const item = ITEMS.find((i) => i.id === s.merchant.delivery);
+  const item = ITEMS.find((i) => i.id === s.merchant.deliveries[0]);
   return item?.trait ? item : null;
 };
 
@@ -96,5 +116,5 @@ export function handOver(s: StudioState, characterId: string): StudioState | nul
   const item = waiting(s);
   if (!item) return null;
   const given = giveTrait(s, characterId, item.trait!);
-  return given && { ...given, merchant: { ...given.merchant, delivery: null } };
+  return given && { ...given, merchant: { ...given.merchant, deliveries: given.merchant.deliveries.slice(1) } };
 }

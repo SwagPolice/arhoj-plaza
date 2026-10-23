@@ -19,9 +19,13 @@ export type BuiltIsland = {
  * `tints` colours a glaze well's water by its id (Studio Mode: the last colour it made).
  * `flowers: false` leaves out the scattered flowers (Studio Mode, where they'd look like paint drops).
  * `plain`: decorations nobody has dyed yet are white bisque (Studio Mode); otherwise they have their usual colours.
+ * `levels`: how far each building has been upgraded, by id (Studio Mode): cobalt bands, a cobalt sail, lit rings.
  */
-export function buildIsland(layout: IslandLayout, tints: Record<string, string> = {}, flowers = true, plain = false): BuiltIsland {
+export function buildIsland(
+  layout: IslandLayout, tints: Record<string, string> = {}, flowers = true, plain = false, levels: Record<string, number> = {},
+): BuiltIsland {
   bisque = plain;
+  upgraded = levels;
   const rand = mulberry32(7);
   const R = layout.radius;
   const group = new THREE.Group();
@@ -61,8 +65,8 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
       : d.kind === 'bowl' ? makeBowl(d)
       : d.kind === 'shell' ? makeShell(d)
       : d.kind === 'seaglass' ? makeSeaGlass(d)
-      : d.kind === 'harbour' ? makeHarbour()
-      : d.kind === 'lighthouse' ? makeLighthouse()
+      : d.kind === 'harbour' ? makeHarbour(levelOf(d))
+      : d.kind === 'lighthouse' ? makeLighthouse(levelOf(d))
       : d.kind === 'driftwood' ? makeDriftwood(d)
       : d.kind === 'coral' ? makeCoral(d)
       : d.kind === 'vase' ? makeVase(d)
@@ -113,6 +117,19 @@ export function buildIsland(layout: IslandLayout, tints: Record<string, string> 
 
 const BISQUE = '#f3efe7'; // undyed white bisque
 let bisque = false; // set for each island build
+let upgraded: Record<string, number> = {}; // likewise: upgrade levels by id
+const levelOf = (d: Decor) => upgraded[d.id] ?? 0;
+const COBALT = '#2f55b5';
+
+/** Thin cobalt bands round a building, one per upgrade level: at these heights, on a body this wide there. */
+function bands(level: number, at: [number, number][]) {
+  return at.slice(0, level).map(([y, r]) => {
+    const band = new THREE.Mesh(new THREE.TorusGeometry(r, 0.018, 8, 48), glaze(COBALT));
+    band.rotation.x = Math.PI / 2;
+    band.position.y = y;
+    return band;
+  });
+}
 /** The colour of a decoration's main glazed part: what it was dyed, else white bisque in the Studio, else its usual. */
 const main = (d: Decor, usual: string) => d.colour ?? (bisque ? BISQUE : usual);
 /** A slightly deeper shade of the main colour, for a second part (a shell's hinge). */
@@ -173,7 +190,7 @@ function makeWell(d: Decor, tint = '#9fd0ee') {
   const water = new THREE.Mesh(new THREE.CircleGeometry(0.47, 40), glaze(tint, { roughness: 0.05 }));
   water.rotation.x = -Math.PI / 2;
   water.position.y = 0.36;
-  const g = new THREE.Group().add(basin, water);
+  const g = new THREE.Group().add(basin, water, ...bands(levelOf(d), [[0.2, 0.6], [0.3, 0.615]])); // (water stays child 1)
   g.scale.setScalar(d.size);
   return g;
 }
@@ -193,7 +210,7 @@ function makeBowl(d: Decor) {
     half.visible = false;
     return half;
   });
-  const g = new THREE.Group().add(bowl, ...halves);
+  const g = new THREE.Group().add(bowl, ...halves, ...bands(levelOf(d), [[0.22, 0.515], [0.28, 0.552]])); // (halves stay children 1, 2)
   g.scale.setScalar(d.size);
   return g;
 }
@@ -239,7 +256,7 @@ const HULL: Pt[] = [[0, 0], [0.12, 0.005], [0.22, 0.04], [0.28, 0.12], [0.3, 0.2
  * round boat moored at its end (the child named 'boat') and a crate for what expeditions bring (named 'crate').
  * Built facing +z; the layout turns it to face out to sea.
  */
-function makeHarbour() {
+function makeHarbour(level = 0) {
   const g = new THREE.Group();
   const plank = glaze('#e8dcc4', { roughness: 0.6, clearcoat: 0.2 });
   const post = glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
@@ -268,7 +285,7 @@ function makeHarbour() {
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.75, 8), glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 }));
   mast.position.set(0, 0.55, 0.08);
   const sailShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0, 0.6), new THREE.Vector2(0.36, 0.04)]);
-  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), glaze('#f6efe2', { side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 }));
+  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), glaze(level >= 2 ? COBALT : '#f6efe2', { side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 })); // swift sails are cobalt
   sail.rotation.y = -Math.PI / 2; // along the boat
   sail.position.set(0, 0.28, 0.1);
   boat.add(hull, rim, seat, mast, sail);
@@ -303,7 +320,7 @@ const ISLET = 1.5; // the radius of its own little island
  * own little island just offshore, its warm light shining out of its two eye holes in soft beams. The part named 'spin' turns, sweeping the beams round over the
  * sea; the beams are named 'beam' (Studio Mode pulses them while an order is waiting). Built facing +z.
  */
-function makeLighthouse() {
+function makeLighthouse(level = 0) {
   const g = new THREE.Group();
   const spin = new THREE.Group();
   spin.name = 'spin';
@@ -340,6 +357,14 @@ function makeLighthouse() {
     beam.userData.light = true;
     beam.raycast = () => {}; // taps go through the light
     spin.add(eye, beam);
+  }
+  // Each upgrade lights a warm ring round its middle, below the eyes.
+  for (const y of [0.95, 0.75].slice(0, level)) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(LIGHTHOUSE_R + 0.004, 0.022, 8, 64), lit);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = y;
+    ring.userData.light = true;
+    spin.add(ring);
   }
   spin.scale.setScalar(LIGHTHOUSE_SCALE);
   g.add(spin, makeIslet());

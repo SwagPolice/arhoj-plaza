@@ -14,6 +14,8 @@ import { LIGHTHOUSE_COST, lighthouseOf, lighthouseUnlocked, unpack, waiting } fr
 import { HARBOUR_COST, harbourOf, harbourUnlocked, stepTrip } from './harbour';
 import { BOOST, fadeLifts, happiness } from './happiness';
 import { stepStars, WHITE } from './stars';
+import { levelOf, MIX_MAKES, WELL_EVERY } from './upgrades';
+export { MIX_MAKES, WELL_EVERY };
 
 /** Seconds between drops, and the chance a drop is double, by personality. */
 export const RATES: Record<Personality, { every: number; double: number }> = {
@@ -24,13 +26,11 @@ export const RATES: Record<Personality, { every: number; double: number }> = {
 };
 /** How often a dipped character's drop is paint rather than clay, by how many glaze layers it has: more layers, more paint. */
 export const PAINT_SHARE = [0, 0.1, 0.17, 0.24];
-export const WELL_EVERY = 150; // seconds per paint from a glaze well
 export const AWAY_CAP = 8 * 3600; // time away counts up to 8 hours
 export const AWAY_MIN = 60; // shorter breaks just carry on
 export const AWAY_SPEED = 1 / 3; // while you're away, the studio works at a third of its speed
 export const TIDY_AWAY = 120; // drops a Tidy character picks up per hour while you're away (about two ghosts' worth)
 export const MIX_TIME = 5; // seconds the bowl stirs
-export const MIX_MAKES = 2; // drops of the new colour from one mix
 export const BOWL_COST = 40;
 
 /** The Studio island's sizes (radius), and what each next one costs. */
@@ -83,7 +83,7 @@ export function advance(
   s: StudioState, seconds: number, speed = 1,
 ): {
   state: StudioState; yields: Yield[]; mixed: Mixed | null; visit: 'arrived' | 'left' | null; boatHome: boolean; stars: number;
-  delivered: Item | null; // what he brought from the lighthouse, now in storage
+  delivered: Item[]; // what he brought from the lighthouse, now in storage
 } {
   const rand = mulberry32(s.seed);
   const progress = { ...s.progress };
@@ -112,8 +112,9 @@ export function advance(
   const primaries = Object.values(PRIMARIES);
   for (const w of s.island.items.filter((d) => d.kind === 'well')) {
     const p = (progress[w.id] ?? 0) + making;
-    const n = Math.floor(p / WELL_EVERY);
-    progress[w.id] = p - n * WELL_EVERY;
+    const every = WELL_EVERY[levelOf(s, w)]; // seconds per paint: quicker once upgraded
+    const n = Math.floor(p / every);
+    progress[w.id] = p - n * every;
     for (let i = 0; i < n; i++) {
       const colour = primaries[Math.floor(rand() * primaries.length)];
       yields.push({ from: w.id, what: colour, amount: 1 });
@@ -127,7 +128,8 @@ export function advance(
     const from = bowlOf(s)?.id ?? 'bowl';
     const made = mixResult(bowl.a, bowl.b);
     if (made) {
-      for (let i = 0; i < MIX_MAKES; i++) yields.push({ from, what: made, amount: 1 });
+      const batch = MIX_MAKES[bowlOf(s) ? levelOf(s, bowlOf(s)!) : 0]; // bigger batches once upgraded
+      for (let i = 0; i < batch; i++) yields.push({ from, what: made, amount: 1 });
       if (!discovered.includes(made)) discovered = [...discovered, made];
     } else yields.push({ from, what: bowl.a, amount: 1, back: true }, { from, what: bowl.b, amount: 1, back: true });
     mixed = { a: bowl.a, b: bowl.b, made };

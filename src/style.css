@@ -206,6 +206,9 @@ body {
   gap: 6px;
 }
 .hud-purse { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+/* Only the chips themselves catch taps: the gaps between them (wide on phones) let taps through to the island. */
+.layer > .studio-hud, .hud-purse, .hud-paint-wrap { pointer-events: none; }
+.studio-hud .hud-chip, .studio-hud .hud-goal, .studio-hud .hud-paint-list { pointer-events: auto; }
 .hud-chip {
   display: inline-flex;
   align-items: center;
