@@ -88,6 +88,7 @@ export type StudioState = {
   stars: Stars; // the next shooting star (added after v1 shipped: missing = none seen yet)
   book: { found: string[]; rewards: number }; // the palette book: colours found, rewards handed out (added later: missing = empty)
   levels: Record<string, number>; // upgrade levels of wells, the bowl and the lighthouse, by id (added later: missing = level 0)
+  homes: Record<string, string>; // who lives in each house: house id → character id (added later: missing = nobody)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -124,6 +125,7 @@ export function newStudio(now = Date.now()): StudioState {
     stars: newStars(),
     book: { found: [], rewards: 0 },
     levels: {},
+    homes: {},
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -264,6 +266,12 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
   };
   const levels: Record<string, number> = {};
   if (isObj(o.levels)) for (const [id, v] of Object.entries(o.levels)) if (whole(v, 0) > 0) levels[id] = Math.min(2, whole(v, 0));
+  // A home each, in a house that still exists (on the island or put away), for someone who still lives here.
+  const houses = new Set([...island.items, ...storage].filter((d) => d.kind === 'house').map((d) => d.id));
+  const homes: Record<string, string> = {};
+  if (isObj(o.homes))
+    for (const [house, who] of Object.entries(o.homes))
+      if (houses.has(house) && typeof who === 'string' && ids.has(who) && !Object.values(homes).includes(who)) homes[house] = who;
   const st = isObj(o.stars) ? o.stars : {};
   const stars: Stars = { wait: count(st.wait, FIRST_STAR), seen: whole(st.seen, 0) };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
@@ -290,6 +298,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     stars,
     book,
     levels,
+    homes,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

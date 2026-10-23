@@ -3,7 +3,7 @@ import { canvasTexture, glaze, makeCanvas, speckle } from './stage';
 import { latheFrom, type Pt } from '../character/build';
 import type { World } from '../plaza/behaviour';
 import { mulberry32 } from '../util/random';
-import { blocksWalking, footprint, obstaclesFor, offshore, toSea, type Decor, type IslandLayout } from './layout';
+import { blocksWalking, footprint, HOUSE_SCALE, obstaclesFor, offshore, toSea, type Decor, type IslandLayout } from './layout';
 
 const TREE: Pt[] = [[0, 0], [0.3, 0], [0.6, 0], [0.62, 0.06], [0.5, 0.3], [0.34, 0.62], [0.18, 0.88], [0.06, 1.02], [0, 1.05]];
 const GREENS = ['#8fb07a', '#a4c08a', '#7fa36f'];
@@ -67,6 +67,7 @@ export function buildIsland(
       : d.kind === 'seaglass' ? makeSeaGlass(d)
       : d.kind === 'harbour' ? makeHarbour(levelOf(d))
       : d.kind === 'lighthouse' ? makeLighthouse(levelOf(d))
+      : d.kind === 'house' ? makeHouse(d)
       : d.kind === 'driftwood' ? makeDriftwood(d)
       : d.kind === 'coral' ? makeCoral(d)
       : d.kind === 'vase' ? makeVase(d)
@@ -371,6 +372,54 @@ function makeLighthouse(level = 0) {
   return g;
 }
 
+/**
+ * A one-room house (Studio Mode): a little white cottage with a pitched roof in its glaze (what it was dyed, or
+ * white bisque), a round-topped doorway and a round window, both dark like the holes in Arhoj's ceramics.
+ * Built facing +z, its door at the front.
+ */
+function makeHouse(d: Decor) {
+  const g = new THREE.Group();
+  const W = 0.5; // half its width
+  const WALL = 0.8; // wall height
+  const PEAK = 1.22; // the ridge
+  const DEPTH = 0.84;
+  const wall = new THREE.Shape([
+    new THREE.Vector2(-W, 0), new THREE.Vector2(W, 0), new THREE.Vector2(W, WALL), new THREE.Vector2(0, PEAK), new THREE.Vector2(-W, WALL),
+  ]);
+  const body = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(wall, { depth: DEPTH, bevelEnabled: true, bevelSize: 0.035, bevelThickness: 0.035, bevelSegments: 3 }).translate(0, 0, -DEPTH / 2),
+    glaze('#f7f4ee'),
+  );
+  g.add(body);
+  // The roof: two slabs meeting at the ridge, a little wider and deeper than the walls.
+  const roof = glaze(main(d, '#c4643c'));
+  const slope = Math.atan2(PEAK - WALL, W);
+  const len = Math.hypot(W, PEAK - WALL) + 0.16;
+  for (const side of [-1, 1]) {
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(len, 0.07, DEPTH + 0.2), roof);
+    slab.rotation.z = -side * slope;
+    slab.position.set(side * (W / 2 + 0.02), (WALL + PEAK) / 2 + 0.06, 0);
+    g.add(slab);
+  }
+  const dark = glaze('#3b3230', { roughness: 0.9, clearcoat: 0 });
+  const front = DEPTH / 2 + 0.036;
+  const WINDOW = { y: 0.5, r: 0.085 };
+  const DOOR = { w: 0.12, top: WINDOW.y + WINDOW.r - 0.02 }; // its round top level with the top of the window
+  const arch = new THREE.Shape();
+  arch.moveTo(-DOOR.w, 0);
+  arch.lineTo(DOOR.w, 0);
+  arch.lineTo(DOOR.w, DOOR.top - DOOR.w);
+  arch.absarc(0, DOOR.top - DOOR.w, DOOR.w, 0, Math.PI, false);
+  arch.lineTo(-DOOR.w, 0);
+  const door = new THREE.Mesh(new THREE.ShapeGeometry(arch, 16), dark);
+  door.position.set(-0.17, 0.02, front);
+  const window = new THREE.Mesh(new THREE.CircleGeometry(WINDOW.r, 24), dark);
+  window.position.set(0.22, WINDOW.y, front);
+  g.add(door, window);
+  g.scale.setScalar(d.size * HOUSE_SCALE);
+  return g;
+}
+
 /** The lighthouse's own little island: a small round of the same glazed grass and clay as the big one. */
 function makeIslet() {
   const g = new THREE.Group();
@@ -492,6 +541,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'seaglass') return 0.15 * d.size;
   if (d.kind === 'harbour') return 0.3;
   if (d.kind === 'lighthouse') return 4.8;
+  if (d.kind === 'house') return 1.35 * HOUSE_SCALE * d.size;
   if (d.kind === 'driftwood') return 0.3 * d.size;
   if (d.kind === 'coral') return 0.55 * d.size;
   if (d.kind === 'mosaic') return 0.1 * d.size;

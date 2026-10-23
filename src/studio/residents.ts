@@ -25,7 +25,7 @@ export function cantLeave(s: StudioState, id: string): 'last' | 'sea' | 'who' | 
 
 /**
  * They leave the studio for good, and everything kept about them goes too: traits, mood, friendships, progress
- * towards their next drop, and their trips. It doesn't make the next ghost any cheaper.
+ * towards their next drop, their trips, and their home (the house stays, empty). It doesn't make the next ghost any cheaper.
  */
 export function sayGoodbye(s: StudioState, id: string): StudioState | null {
   if (cantLeave(s, id)) return null;
@@ -34,10 +34,11 @@ export function sayGoodbye(s: StudioState, id: string): StudioState | null {
   const { [id]: _p, ...progress } = s.progress;
   const { [id]: _r, ...trips } = s.harbour.trips;
   const friends = Object.fromEntries(Object.entries(s.friends).filter(([pair]) => !pair.split('|').includes(id)));
+  const homes = Object.fromEntries(Object.entries(s.homes).filter(([, who]) => who !== id)); // their house stands empty
   return {
     ...s,
     characters: s.characters.filter((c) => c.id !== id),
-    traits, mood, progress, friends,
+    traits, mood, progress, friends, homes,
     harbour: { ...s.harbour, trips },
   };
 }

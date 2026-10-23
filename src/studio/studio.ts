@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { IslandView } from '../scene/island-view';
-import { footprint, OFFSHORE, toSea, type IslandLayout } from '../scene/layout';
+import { doorOf, footprint, OFFSHORE, toSea, type IslandLayout } from '../scene/layout';
 import { decorHeight } from '../scene/island';
 import { glaze } from '../scene/stage';
 import { disposeObject } from '../character/build';
@@ -28,6 +28,7 @@ import {
   harbourUnlocked, isOpen, setSail, tripTime,
 } from './harbour';
 import { HarbourView } from './harbour-view';
+import { buyHouse, HOME_COMFORT, homeOf, houseCost, housesUnlocked, INDOORS, moveIn, moveOut, residentOf, VISIT_EVERY } from './houses';
 import { cantLeave, NAME_MAX, rename, sayGoodbye } from './residents';
 import { openResidents, type Resident, type ResidentsDialog } from '../ui/residents';
 import {
@@ -68,6 +69,9 @@ export class Studio extends IslandView {
   private bowlBtn = button('', 'btn', () => this.buildBowl());
   private harbourBtn = button('', 'btn', () => this.buildHarbour());
   private lighthouseBtn = button('', 'btn', () => this.buildLighthouse());
+  private houseBtn = button('', 'btn', () => this.buildHouse());
+  private goingHome = new Set<string>(); // walking to their door
+  private indoors = new Map<string, number>(); // inside their house: seconds until they come out
   private lighthouseDialog: HTMLDialogElement | null = null;
   private islandBtn = button('', 'btn', () => this.biggerIsland());
   private cameraEase: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null = null;
@@ -154,7 +158,7 @@ export class Studio extends IslandView {
         },
       },
     );
-    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.harbourBtn, this.lighthouseBtn, this.islandBtn, this.arrangeBtn);
+    this.bar.append(this.ghostBtn, this.wellBtn, this.bowlBtn, this.houseBtn, this.harbourBtn, this.lighthouseBtn, this.islandBtn, this.arrangeBtn);
     this.card.style.display = 'none';
     const purse = el('div', 'hud-purse');
     const paintWrap = el('div', 'hud-paint-wrap');
@@ -317,6 +321,7 @@ export class Studio extends IslandView {
       this.shop?.close();
     }
     this.tidyUp(dt);
+    this.visitHomes(dt);
     this.feelAround(dt);
     this.animateDrops(dt);
     this.animateStreaks(dt);
@@ -347,6 +352,10 @@ export class Studio extends IslandView {
     const lighthouse = lighthouseOf(this.state);
     const lighthouseObj = lighthouse && this.island.decor.get(lighthouse.id);
     if (lighthouseObj && this.raycaster.intersectObject(lighthouseObj, true).length) return this.openLighthouse();
+    const house = this.state.island.items.find(
+      (d) => d.kind === 'house' && this.raycaster.intersectObject(this.island.decor.get(d.id) ?? new THREE.Group(), true).length,
+    );
+    if (house) return this.openHouse(house.id);
     const agent = this.pickAgent(e);
     if (!agent) {
       this.card.style.display = 'none';
@@ -437,6 +446,8 @@ export class Studio extends IslandView {
       if (agent) return new THREE.Vector3(agent.pos.x, agent.built.height * 0.6, agent.pos.y);
       const well = this.state.island.items.find((d) => d.id === y.from);
       if (well) return new THREE.Vector3(well.x, 0.5, well.z);
+      const home = this.indoors.has(y.from) && homeOf(this.state, y.from);
+      if (home) return new THREE.Vector3(doorOf(home).x, 0.5, doorOf(home).z); // made indoors: out of the door
       const anyone = this.agents.at(Math.floor(Math.random() * this.agents.length));
       return anyone ? new THREE.Vector3(anyone.pos.x, 0.6, anyone.pos.y) : new THREE.Vector3();
     };
@@ -880,7 +891,7 @@ export class Studio extends IslandView {
     const away = atSea(this.state);
     const arriving = this.harbourView.arriving; // still on the boat, sailing home
     const before = this.agents.length;
-    this.syncAgents(this.state.characters.filter((c) => !away.has(c.id) && !arriving.has(c.id)));
+    this.syncAgents(this.state.characters.filter((c) => !away.has(c.id) && !arriving.has(c.id) && !this.indoors.has(c.id)));
     if (this.agents.length < before) this.bubbles.clear(); // no bubbles left floating where the crew stood
   }
 
@@ -1289,7 +1300,7 @@ export class Studio extends IslandView {
     this.comfortClock = 0;
     const n = this.state.characters.length;
     for (const a of this.agents) {
-      const target = comfortHere(this.state.island, { x: a.pos.x, z: a.pos.y }, n);
+      const target = comfortHere(this.state.island, { x: a.pos.x, z: a.pos.y }, n, homeOf(this.state, a.recipe.id) ? HOME_COMFORT : 0);
       this.state = settleComfort(this.state, a.recipe.id, target, elapsed);
     }
   }
@@ -1320,6 +1331,114 @@ export class Studio extends IslandView {
       const near = ground.reduce((m, d) => (Math.hypot(d.x - a.pos.x, d.z - a.pos.y) < Math.hypot(m.x - a.pos.x, m.z - a.pos.y) ? d : m));
       walkTo(a, this.world, new THREE.Vector2(near.x, near.z));
       this.tidyRest.set(a.recipe.id, 3 + Math.random() * 3);
+    }
+  }
+
+  // ---------- houses ----------
+
+  private buildHouse() {
+    const cost = houseCost(this.state);
+    if (this.state.purse.clay < cost) return this.toast(`A house needs ${cost} clay. Keep collecting!`);
+    const r = buyHouse(this.state);
+    if (!r) return this.toast('No room on the island for a house. Make it bigger, or put something away.');
+    this.state = r.state;
+    this.applyLayout(r.state.island);
+    this.returnToIsland(); // anyone standing where it went steps aside
+    this.firstTime('house', '🏠');
+    this.persist();
+    this.render();
+    this.openHouse(r.house.id, true);
+  }
+
+  /** A house: who lives here (pick or change), or move them out. */
+  private openHouse(id: string, isNew = false) {
+    const body = el('div');
+    const draw = () => {
+      const s = this.state;
+      const who = residentOf(s, id);
+      const name = who && s.characters.find((c) => c.id === who)?.name;
+      const chips = el('div', 'chips');
+      for (const c of s.characters) {
+        const elsewhere = Object.entries(s.homes).some(([h, x]) => x === c.id && h !== id);
+        const b = button(`${PERSONALITY_ICON[c.personality]} ${c.name || 'Unnamed'}${elsewhere ? ' 🏠' : ''}`, 'chip' + (c.id === who ? ' on' : ''), () => {
+          const next = moveIn(this.state, id, c.id);
+          if (!next) return;
+          this.state = next;
+          this.persist();
+          this.render();
+          this.toast(`${c.name || 'They'} moved in!${elsewhere ? ' (Their old house is empty now.)' : ''}`);
+          const agent = this.agents.find((a) => a.recipe.id === c.id);
+          if (agent) this.say(agent, '🏠');
+          draw();
+        });
+        if (elsewhere) b.title = 'Lives in another house: they would move here';
+        chips.append(b);
+      }
+      body.replaceChildren(
+        el('p', isNew && !who ? '' : 'muted', who ? `${name || 'Someone'} lives here. A home makes them happier, and now and then they go in for a while.` : isNew ? 'Your house is built! Who lives here? A home makes them happier, and now and then they go in for a while.' : 'Nobody lives here yet. Who should? A home makes them happier.'),
+        el('div', 'sub', who ? 'Someone else?' : 'Who lives here?'),
+        chips,
+        ...(who
+          ? [
+              row(
+                button('Move out', 'btn', () => {
+                  const next = moveOut(this.state, id);
+                  if (!next) return;
+                  this.state = next;
+                  this.comeOut(who);
+                  this.persist();
+                  this.render();
+                  draw();
+                }),
+              ),
+            ]
+          : []),
+      );
+    };
+    draw();
+    openDialog(isNew ? 'A new house' : 'House', [body]);
+  }
+
+  /** Now and then someone with a home walks to their door, goes in for a while, and comes out again. */
+  private visitHomes(dt: number) {
+    for (const [id, left] of this.indoors) {
+      if (left - dt > 0 && homeOf(this.state, id)) this.indoors.set(id, left - dt);
+      else this.comeOut(id);
+    }
+    for (const a of this.agents) {
+      const id = a.recipe.id;
+      const home = homeOf(this.state, id);
+      if (!home) {
+        this.goingHome.delete(id);
+        continue;
+      }
+      const door = doorOf(home);
+      if (this.goingHome.has(id)) {
+        if (Math.hypot(a.pos.x - door.x, a.pos.y - door.z) < 0.5) {
+          this.goingHome.delete(id);
+          this.indoors.set(id, INDOORS.min + Math.random() * (INDOORS.max - INDOORS.min));
+          if (this.cardFor === id) this.card.style.display = 'none';
+          this.syncHome(); // in they go
+        } else if (a.state !== 'walk') this.goingHome.delete(id); // got distracted on the way
+        continue;
+      }
+      if (a.state === 'idle' && !a.partner && Math.random() < dt / VISIT_EVERY && walkTo(a, this.world, new THREE.Vector2(door.x, door.z))) {
+        this.goingHome.add(id);
+      }
+    }
+  }
+
+  /** Someone inside comes out of their door (or, if their house is gone, simply reappears). */
+  private comeOut(id: string) {
+    if (!this.indoors.delete(id)) return;
+    const home = homeOf(this.state, id);
+    this.syncHome();
+    const a = this.agents.find((x) => x.recipe.id === id);
+    if (a && home) {
+      const door = doorOf(home);
+      a.pos.set(door.x, door.z);
+      a.target.copy(a.pos);
+      a.heading = home.rot; // facing out of the door
     }
   }
 
@@ -1360,7 +1479,8 @@ export class Studio extends IslandView {
           ...(friendName ? [`🤝 ${friendName}`] : []),
         ];
         if (extra.length) facts.push(extra.join(' · '));
-        facts.push(away.has(c.id) ? '⛵ At sea' : '❤️'.repeat(Math.max(1, hearts(happiness(s, c.id)))));
+        const home = homeOf(s, c.id) ? (this.indoors.has(c.id) ? ' · 🏠 at home, inside' : ' · 🏠 has a home') : '';
+        facts.push((away.has(c.id) ? '⛵ At sea' : '❤️'.repeat(Math.max(1, hearts(happiness(s, c.id))))) + home);
         const name = c.name || 'They';
         const leave = cantLeave(s, c.id);
         return {
@@ -1374,6 +1494,7 @@ export class Studio extends IslandView {
               label: 'Find', primary: true,
               off: away.has(c.id) ? `${name} is at sea. Back with the boat!` : undefined,
               run: () => {
+                this.comeOut(c.id); // someone at home steps out to wave
                 if (this.find(c.id)) open?.dialog.close();
               },
             },
@@ -1391,6 +1512,8 @@ export class Studio extends IslandView {
                   this.cardFor = null;
                 }
                 this.tidyRest.delete(c.id);
+                this.indoors.delete(c.id);
+                this.goingHome.delete(c.id);
                 this.tidyPick.delete(c.id);
                 this.syncHome();
                 this.persist();
@@ -1467,7 +1590,7 @@ export class Studio extends IslandView {
       );
     }
     if (r.layers.length < MAX_LAYERS && owned.length) {
-      actions.append(button(r.layers.length ? 'Dip again…' : 'Dip…', 'btn primary', () => this.openDip(id)));
+      actions.append(button(r.layers.length ? 'Dip again!' : 'Dip…', 'btn primary', () => this.openDip(id)));
     } else if (r.layers.length >= MAX_LAYERS) parts.push(el('p', 'muted card-line', 'Three layers: as many as it can take.'));
     if (r.layers.length) actions.append(button('Scrape off top', 'btn', () => this.scrapeTop(id)));
     if (actions.childElementCount) parts.push(actions);
@@ -1590,6 +1713,10 @@ export class Studio extends IslandView {
     priced(this.harbourBtn, 'Harbour', HARBOUR_COST);
     this.harbourBtn.style.display = harbourUnlocked(s) && !harbourOf(s) ? '' : 'none';
     this.harbourBtn.classList.toggle('off', s.purse.clay < HARBOUR_COST);
+    const hc = houseCost(s);
+    priced(this.houseBtn, 'House', hc);
+    this.houseBtn.style.display = housesUnlocked(s) ? '' : 'none';
+    this.houseBtn.classList.toggle('off', s.purse.clay < hc);
     priced(this.lighthouseBtn, 'Lighthouse', LIGHTHOUSE_COST);
     this.lighthouseBtn.style.display = lighthouseUnlocked(s) && !lighthouseOf(s) ? '' : 'none';
     this.lighthouseBtn.classList.toggle('off', s.purse.clay < LIGHTHOUSE_COST);

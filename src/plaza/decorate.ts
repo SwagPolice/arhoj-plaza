@@ -83,10 +83,10 @@ const ADD: { kind: DecorKind; label: string }[] = [
   { kind: 'rainbow', label: '🌈 Rainbow pot' },
 ];
 const ICONS: Record<DecorKind, string> = {
-  tree: '🌲', pond: '💧', rock: '🪨', mushroom: '🍄', well: '⛲', bowl: '🥣', shell: '🐚', seaglass: '💎', harbour: '⚓', driftwood: '🪵', coral: '🪸', vase: '🏺', mosaic: '🔲', totem: '🍡', rainbow: '🌈', lighthouse: '🗼',
+  tree: '🌲', pond: '💧', rock: '🪨', mushroom: '🍄', well: '⛲', bowl: '🥣', shell: '🐚', seaglass: '💎', harbour: '⚓', driftwood: '🪵', coral: '🪸', vase: '🏺', mosaic: '🔲', totem: '🍡', rainbow: '🌈', lighthouse: '🗼', house: '🏠',
 };
 const NAMES: Record<DecorKind, string> = { tree: 'tree', pond: 'pond', rock: 'rock', mushroom: 'mushroom', well: 'glaze well', bowl: 'mixing bowl', shell: 'shell', seaglass: 'sea glass', harbour: 'harbour', driftwood: 'driftwood', coral: 'coral',
-  vase: 'glazed vase', mosaic: 'tile mosaic', totem: 'stack of bowls', rainbow: 'rainbow pot', lighthouse: 'lighthouse',
+  vase: 'glazed vase', mosaic: 'tile mosaic', totem: 'stack of bowls', rainbow: 'rainbow pot', lighthouse: 'lighthouse', house: 'house',
 };
 type Look = 'selected' | 'invalid' | null;
 const RED = new THREE.Color('#e0452f');

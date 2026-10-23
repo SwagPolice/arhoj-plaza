@@ -7,7 +7,7 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow', 'lighthouse'] as const; // well, bowl, harbour, lighthouse: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow', 'lighthouse', 'house'] as const; // well, bowl, harbour, lighthouse, house: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
@@ -20,6 +20,7 @@ export type IslandLayout = { radius: number; items: Decor[] };
 
 export const ISLAND_SIZE = { min: 5, max: 11 };
 export const MAX_DECOR = 40;
+export const HOUSE_SCALE = 1.6; // a house is drawn this much bigger than its plan, so a ghost fits through the door
 const EDGE = 0.2; // keep things off the rim
 
 export const SIZES: Record<DecorKind, { min: number; max: number }> = {
@@ -39,10 +40,11 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   totem: { min: 0.7, max: 1.4 },
   rainbow: { min: 0.7, max: 1.4 },
   lighthouse: { min: 1, max: 1 },
+  house: { min: 0.8, max: 1.3 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
-export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow'].includes(kind);
+export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow', 'house'].includes(kind);
 
 /** The harbour and the lighthouse belong on the island's edge, facing the sea: they stay where they were built. */
 export const onEdge = (kind: DecorKind) => kind === 'harbour' || kind === 'lighthouse';
@@ -71,6 +73,7 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'seaglass') return 0.18 * d.size;
   if (d.kind === 'harbour') return 0.55; // the landward end; the pier itself reaches out over the water
   if (d.kind === 'lighthouse') return 0.5;
+  if (d.kind === 'house') return 0.75 * HOUSE_SCALE * d.size;
   if (d.kind === 'driftwood') return 0.5 * d.size;
   if (d.kind === 'coral') return 0.3 * d.size;
   if (d.kind === 'mosaic') return 0.5 * d.size;
@@ -156,6 +159,17 @@ export function placeAtEdge(layout: IslandLayout, kind: DecorKind, from = EDGE_S
     if (canPlace(layout, item, x, z)) return { ...item, x, z, rot: round2(((a % TAU) + TAU) % TAU) };
   }
   return null;
+}
+
+/**
+ * Where someone steps in and out of a house: in front of its door (left of the middle, at the front; then turned),
+ * just far enough out that a character standing there is clear of the house.
+ */
+export function doorOf(d: Pick<Decor, 'x' | 'z' | 'size' | 'rot'>): { x: number; z: number } {
+  const lx = -0.17 * HOUSE_SCALE * d.size;
+  const lz = footprint({ kind: 'house', size: d.size }) + 0.45;
+  const [c, s] = [Math.cos(d.rot), Math.sin(d.rot)];
+  return { x: round2(d.x + lx * c + lz * s), z: round2(d.z - lx * s + lz * c) };
 }
 
 /** An edge item (the harbour, the lighthouse) moved out to the edge of the island as it is now, at the same spot round it. */

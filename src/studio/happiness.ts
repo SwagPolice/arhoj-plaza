@@ -31,8 +31,11 @@ export const happiness = (s: StudioState, id: string) => Math.min(1, moodOf(s, i
 /** The hearts a tap shows: 1, 2 or 3. */
 export const hearts = (h: number) => (h < 1 / 3 ? 1 : h < 2 / 3 ? 2 : 3);
 
-/** How comfortable it is to be at (x, z): decorations close by, and room to wander on the island. */
-export function comfortHere(island: IslandLayout, pos: { x: number; z: number }, characters: number): number {
+/**
+ * How comfortable it is to be at (x, z): decorations close by, room to wander on the island, and having a home
+ * (`home`, the comfort a house gives; 0 without one).
+ */
+export function comfortHere(island: IslandLayout, pos: { x: number; z: number }, characters: number, home = 0): number {
   let decor = 0;
   for (const d of island.items) {
     if (!COSY.includes(d.kind)) continue;
@@ -41,7 +44,7 @@ export function comfortHere(island: IslandLayout, pos: { x: number; z: number },
   }
   const area = Math.PI * island.radius ** 2;
   const room = ROOM_MAX * Math.min(1, area / Math.max(1, characters) / ROOM_EACH);
-  return Math.min(DECOR_MAX, decor) + room;
+  return Math.min(DECOR_MAX, decor) + room + home;
 }
 
 const withMood = (s: StudioState, id: string, change: Partial<Mood>): StudioState => ({
