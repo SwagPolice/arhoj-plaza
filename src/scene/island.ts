@@ -253,53 +253,168 @@ function makeSeaGlass(d: Decor) {
 const HULL: Pt[] = [[0, 0], [0.12, 0.005], [0.22, 0.04], [0.28, 0.12], [0.3, 0.2], [0.27, 0.22], [0.24, 0.15], [0, 0.13]];
 
 /**
- * Harbour (Studio Mode): a pale plank pier reaching out from the edge over the water, on posts, with a little
- * round boat moored at its end (the child named 'boat') and a crate for what expeditions bring (named 'crate').
- * Built facing +z; the layout turns it to face out to sea.
+ * Harbour (Studio Mode): a pale plank pier reaching out from the edge over the water, on posts, with a boat
+ * moored at its end (the child named 'boat') and a crate for what expeditions bring (named 'crate').
+ * Its upgrades show: the bigger boat (level 1) is a longship, and swift sails (level 2) come with a sturdier pier,
+ * two lamps lit warm, and a striped sail. Built facing +z; the layout turns it to face out to sea.
  */
 function makeHarbour(level = 0) {
-  const g = new THREE.Group();
-  const plank = glaze('#e8dcc4', { roughness: 0.6, clearcoat: 0.2 });
-  const post = glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
-  for (let i = 0; i < 11; i++) {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.22), plank);
-    p.position.set(0, 0.15, -0.35 + i * 0.25); // just above the island's rim
-    p.rotation.y = (i % 2 ? 1 : -1) * 0.015;
-    g.add(p);
-  }
-  for (const [x, z, top] of [[-0.29, -0.3, 0.13], [0.29, -0.3, 0.13], [-0.29, 1.05, 0.13], [0.29, 1.05, 0.13], [-0.29, 2.15, 0.13], [0.29, 2.15, 0.13]]) {
-    const bottom = z < 0.5 ? 0 : -1.12; // on the grass, or down into the water
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, top - bottom, 10), post);
-    p.position.set(x, (top + bottom) / 2, z);
-    g.add(p);
-  }
-  const boat = new THREE.Group();
+  const g = makePier(level >= 2);
+  const boat = level >= 1 ? makeLongship(level >= 2) : makeRowingBoat();
   boat.name = 'boat';
-  const hull = new THREE.Mesh(latheFrom(HULL, 32).geo, glaze('#f7f4ee'));
-  hull.scale.set(1.15, 1.2, 1.9);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.018, 8, 32), glaze('#2f55b5'));
-  rim.rotation.x = Math.PI / 2;
-  rim.scale.set(1.15, 1.9, 1);
-  rim.position.y = 0.21 * 1.2;
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.1), glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 }));
-  seat.position.set(0, 0.2, -0.12);
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.75, 8), glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 }));
-  mast.position.set(0, 0.55, 0.08);
-  const sailShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0, 0.6), new THREE.Vector2(0.36, 0.04)]);
-  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), glaze(level >= 2 ? COBALT : '#f6efe2', { side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 })); // swift sails are cobalt
-  sail.rotation.y = -Math.PI / 2; // along the boat
-  sail.position.set(0, 0.28, 0.1);
-  boat.add(hull, rim, seat, mast, sail);
   boat.scale.setScalar(2); // big enough to carry a crew you can see
-  boat.position.set(1.08, -1.12, 1.65);
+  boat.position.set(level >= 2 ? 1.2 : 1.08, -1.12, level >= 1 ? 2.35 : 1.65); // the longship moors further out: it's longer
   g.add(boat);
   const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.3), glaze('#c79a62', { roughness: 0.7, clearcoat: 0 }));
   crate.name = 'crate';
-  crate.position.set(0.12, 0.29, 0.15);
+  crate.position.set(0.12, level >= 2 ? 0.34 : 0.29, 0.15);
   crate.rotation.y = 0.3;
   crate.visible = false;
   g.add(crate);
   return g;
+}
+
+/** The pier: planks on posts. The sturdy one is wider and thicker, with beams along its sides and two street lamps. */
+function makePier(sturdy: boolean) {
+  const g = new THREE.Group();
+  const plank = glaze('#e8dcc4', { roughness: 0.6, clearcoat: 0.2 });
+  const post = glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
+  const [width, thick, top, half] = sturdy ? [0.9, 0.1, 0.2, 0.42] : [0.62, 0.05, 0.15, 0.29];
+  for (let i = 0; i < 11; i++) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(width, thick, 0.22), plank);
+    p.position.set(0, top, -0.35 + i * 0.25); // just above the island's rim
+    p.rotation.y = (i % 2 ? 1 : -1) * 0.015;
+    g.add(p);
+  }
+  if (sturdy) {
+    for (const x of [-half, half]) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 2.75), post);
+      beam.position.set(x, top - 0.09, 0.9);
+      g.add(beam);
+    }
+  }
+  const postTop = top - thick / 2 - 0.01;
+  for (const z of [-0.3, 1.05, 2.15]) {
+    for (const x of [-half, half]) {
+      const bottom = z < 0.5 ? 0 : -1.12; // on the grass, or down into the water
+      const r = sturdy ? 0.085 : 0.045;
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.005, postTop - bottom, 12), post);
+      p.position.set(x, (postTop + bottom) / 2, z);
+      g.add(p);
+    }
+  }
+  if (sturdy) {
+    // Two street lamps along the side away from the boat: a slim cobalt post, and a round glass globe lit warm.
+    const iron = glaze(COBALT, { roughness: 0.4 });
+    const lit = new THREE.MeshBasicMaterial({ color: '#ffd27a', toneMapped: false });
+    for (const z of [0.45, 1.95]) {
+      const lamp = new THREE.Group();
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, 0.72, 10), iron);
+      stem.position.y = 0.36;
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.04, 14), iron);
+      foot.position.y = 0.02;
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 14), lit);
+      globe.position.y = 0.78;
+      globe.userData.light = true;
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron);
+      cap.position.y = 0.84;
+      lamp.add(stem, foot, globe, cap);
+      lamp.position.set(-half + 0.02, top + thick / 2, z);
+      g.add(lamp);
+    }
+  }
+  return g;
+}
+
+const BOAT_WOOD = () => glaze('#cdbb98', { roughness: 0.7, clearcoat: 0 });
+
+/** The first boat: little and round, with a seat, a mast and a three-cornered sail. */
+function makeRowingBoat() {
+  const boat = new THREE.Group();
+  const hull = new THREE.Mesh(latheFrom(HULL, 32).geo, glaze('#f7f4ee'));
+  hull.scale.set(1.15, 1.2, 1.9);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.018, 8, 32), glaze(COBALT));
+  rim.rotation.x = Math.PI / 2;
+  rim.scale.set(1.15, 1.9, 1);
+  rim.position.y = 0.21 * 1.2;
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.1), BOAT_WOOD());
+  seat.position.set(0, 0.2, -0.12);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.75, 8), BOAT_WOOD());
+  mast.position.set(0, 0.55, 0.08);
+  const sailShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0, 0.6), new THREE.Vector2(0.36, 0.04)]);
+  const sail = new THREE.Mesh(new THREE.ShapeGeometry(sailShape), glaze('#f6efe2', { side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 }));
+  sail.rotation.y = -Math.PI / 2; // along the boat
+  sail.position.set(0, 0.28, 0.1);
+  boat.add(hull, rim, seat, mast, sail);
+  return boat;
+}
+
+/**
+ * The bigger boat: a longship, long and narrow, its bow and stern rising into curls, round shields along both sides
+ * and a square sail across it (striped cobalt and white with swift sails).
+ */
+function makeLongship(striped: boolean) {
+  const boat = new THREE.Group();
+  const [sx, sy, sz] = [0.95, 1.15, 2.7];
+  const hull = new THREE.Mesh(latheFrom(HULL, 40).geo, glaze('#f7f4ee'));
+  hull.scale.set(sx, sy, sz);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.018, 8, 48), glaze(COBALT));
+  rim.rotation.x = Math.PI / 2;
+  rim.scale.set(sx, sz, 1);
+  rim.position.y = 0.21 * sy;
+  boat.add(hull, rim);
+  // Bow and stern: a post rising from each end and curling back over, like a fern frond.
+  const end = 0.285 * sz;
+  for (const dir of [1, -1]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.2, dir * (end - 0.05)),
+      new THREE.Vector3(0, 0.36, dir * (end + 0.05)),
+      new THREE.Vector3(0, 0.56, dir * (end + 0.07)),
+      new THREE.Vector3(0, 0.66, dir * (end - 0.02)),
+      new THREE.Vector3(0, 0.6, dir * (end - 0.08)),
+      new THREE.Vector3(0, 0.53, dir * (end - 0.04)),
+    ]);
+    boat.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.024, 10), glaze(COBALT)));
+  }
+  // Round shields along both sides, in turn red, yellow, cobalt and white.
+  const colours = ['#d8382f', '#f2c230', COBALT, '#f7f4ee'];
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const z = -0.48 + i * 0.24;
+      const along = Math.sqrt(Math.max(0, 1 - (z / end) ** 2)); // the hull narrows towards its ends
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.018, 20), glaze(colours[(i + (side > 0 ? 0 : 2)) % 4]));
+      shield.rotation.z = Math.PI / 2;
+      shield.rotation.y = -side * Math.atan2(z, end * end * (1 / Math.max(0.3, along))) * 0.6; // turned with the hull's curve
+      shield.position.set(side * (0.3 * sx * along + 0.035), 0.19, z); // hung over the side, clear of it
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 8), glaze('#e8dcc4'));
+      boss.position.set(shield.position.x + side * 0.012, 0.19, z);
+      boat.add(shield, boss);
+    }
+  }
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.1), BOAT_WOOD());
+  seat.position.set(0, 0.2, -0.12);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 0.92, 8), BOAT_WOOD());
+  mast.position.set(0, 0.62, 0.05);
+  const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.66, 8), BOAT_WOOD());
+  yard.rotation.z = Math.PI / 2;
+  yard.position.set(0, 0.98, 0.07);
+  // The square sail hangs from the yard, across the boat and bellied a little forward.
+  const cloth = new THREE.PlaneGeometry(0.6, 0.46, 12, 1);
+  const pos = cloth.attributes.position;
+  for (let i = 0; i < pos.count; i++) pos.setZ(i, 0.05 * (1 - (pos.getX(i) / 0.3) ** 2));
+  cloth.computeVertexNormals();
+  const look = striped
+    ? { map: canvasTexture(makeCanvas(64, 8, (ctx) => {
+        for (let i = 0; i < 8; i++) {
+          ctx.fillStyle = i % 2 ? COBALT : '#f6efe2';
+          ctx.fillRect(i * 8, 0, 8, 8);
+        }
+      }), true) }
+    : {};
+  const sail = new THREE.Mesh(cloth, glaze('#ffffff', { ...look, ...(striped ? {} : { color: '#f6efe2' }), side: THREE.DoubleSide, roughness: 0.6, clearcoat: 0 }));
+  sail.position.set(0, 0.74, 0.08);
+  boat.add(seat, mast, yard, sail);
+  return boat;
 }
 
 // The lighthouse's body, like Arhoj's ghost candle light: straight sides and a rounded top.
