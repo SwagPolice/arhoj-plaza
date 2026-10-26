@@ -28,6 +28,8 @@ import {
   harbourUnlocked, isOpen, setSail, tripTime,
 } from './harbour';
 import { HarbourView } from './harbour-view';
+import { GIANT_KINDS, GIANTS, giantReward, giftFrom, rollGiant, sawGiant, takeGift } from './giants';
+import { GiantView } from './giants-view';
 import { buyHouse, HOME_COMFORT, homeOf, houseCost, housesUnlocked, INDOORS, moveIn, moveOut, residentOf, VISIT_EVERY } from './houses';
 import { cantLeave, NAME_MAX, rename, sayGoodbye } from './residents';
 import { openResidents, type Resident, type ResidentsDialog } from '../ui/residents';
@@ -70,6 +72,11 @@ export class Studio extends IslandView {
   private harbourBtn = button('', 'btn', () => this.buildHarbour());
   private lighthouseBtn = button('', 'btn', () => this.buildLighthouse());
   private houseBtn = button('', 'btn', () => this.buildHouse());
+  private giants: GiantView;
+  private giantGifted = false; // the giant that's out has given its gift
+  private giantsBtn = button('🐙', 'hud-chip hud-book', () => this.openGiants());
+  private lastInput = Date.now(); // when you last moved, touched or pressed something
+  private playClock = 0; // seconds of active play towards the next minute's roll
   private goingHome = new Set<string>(); // walking to their door
   private indoors = new Map<string, number>(); // inside their house: seconds until they come out
   private lighthouseDialog: HTMLDialogElement | null = null;
@@ -106,6 +113,7 @@ export class Studio extends IslandView {
 
     this.scene.add(this.drops);
     this.merchant = new MerchantBalloon(this.scene);
+    this.giants = new GiantView(this.scene);
     this.harbourView.onDocked = () => this.crewAshore();
     // Arranging what you bought: Creative's Decorate tools, without adding, removing or resizing the island.
     this.decorator = new Decorator(
@@ -165,7 +173,8 @@ export class Studio extends IslandView {
     paintWrap.append(this.paintChip, this.paintList);
     const bookBtn = button('📖', 'hud-chip hud-book', () => this.openBook());
     bookBtn.title = 'Palette book';
-    purse.append(this.clayChip, paintWrap, bookBtn);
+    this.giantsBtn.title = 'Giants of the sea';
+    purse.append(this.clayChip, paintWrap, bookBtn, this.giantsBtn);
     this.hud.append(purse, this.goal);
     // The paint list opens on hover with a mouse, and on tap on touch screens.
     this.paintChip.type = 'button';
@@ -186,6 +195,8 @@ export class Studio extends IslandView {
       const id = this.dropUnderPointer();
       if (id) this.collectDrop(id);
     });
+    // Giants only rise while you're actually playing: the page on screen, and you've touched it lately.
+    for (const type of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) window.addEventListener(type, () => (this.lastInput = Date.now()), { passive: true });
     window.addEventListener('pagehide', () => this.active && this.persist());
     document.addEventListener('visibilitychange', () => {
       if (!this.active) return;
@@ -290,6 +301,7 @@ export class Studio extends IslandView {
       if (e.t >= 1) this.cameraEase = null;
     }
     this.merchant.update(dt, t, this.camera);
+    this.giants.update(dt, this.camera);
     const harbour = harbourOf(this.state);
     const trip = this.state.harbour.trip;
     const crew = trip ? this.state.characters.filter((c) => trip.crew.includes(c.id)) : null;
@@ -322,6 +334,7 @@ export class Studio extends IslandView {
     }
     this.tidyUp(dt);
     this.visitHomes(dt);
+    this.watchTheSea(dt);
     this.feelAround(dt);
     this.animateDrops(dt);
     this.animateStreaks(dt);
@@ -338,6 +351,7 @@ export class Studio extends IslandView {
       const id = this.dropUnderPointer();
       if (id) return this.collectDrop(id);
     }
+    if (this.giants.hit(this.raycaster)) return this.tapGiant();
     const bowl = bowlOf(this.state);
     const bowlObj = bowl && this.island.decor.get(bowl.id);
     if (bowlObj && this.raycaster.intersectObject(bowlObj, true).length) return this.openMixer();
@@ -1252,6 +1266,84 @@ export class Studio extends IslandView {
     ]);
   }
 
+  // ---------- giants of the sea ----------
+
+  /** Each minute of active play (the page on screen, you about), a giant may rise: at most one a day. */
+  private watchTheSea(dt: number) {
+    const playing = !document.hidden && Date.now() - this.lastInput < 2 * 60 * 1000;
+    if (!playing || this.giants.out) return;
+    if ((this.playClock += dt) < 60) return;
+    this.playClock = 0;
+    const kind = rollGiant(this.state, Date.now(), Math.random);
+    if (kind) this.raiseGiant(kind);
+  }
+
+  /** A giant rises from the sea. */
+  private raiseGiant(kind: (typeof GIANT_KINDS)[number]) {
+    const first = !this.state.giants.seen.includes(kind);
+    this.state = sawGiant(this.state, kind, Date.now());
+    this.giantGifted = false;
+    const hud = this.hud.getBoundingClientRect(); // it must rise below the HUD (lower down on phones)
+    this.giants.show(kind, this.layout.radius, this.camera, hud.height ? Math.min(0.8, 1 - (2 * (hud.bottom + 8)) / this.h) : 0.8);
+    const g = GIANTS[kind];
+    this.toast(first ? `A ${g.name.toLowerCase()} rose from the sea! Tap it before it sinks back.` : `The ${g.name.toLowerCase()} is back! Tap it before it sinks.`);
+    const reward = giantReward(this.state);
+    if (reward.given) {
+      this.state = reward.state;
+      setTimeout(() => this.toast("You've seen all three giants! A little serpent figurine is in your storage."), 3500);
+    }
+    for (const a of this.agents) a.lookAt(this.giants.object!.position.x, this.giants.object!.position.z, 4); // everyone turns to look
+    const someone = this.agents.at(0);
+    if (someone) this.say(someone, '❗', 0.4);
+    this.persist();
+    this.render();
+  }
+
+  /** Caught it: a small gift, once, and it sinks back happy. */
+  private tapGiant() {
+    const kind = this.giants.kind;
+    if (!kind || this.giantGifted) return;
+    this.giantGifted = true;
+    const gift = giftFrom(this.state, kind, Math.random);
+    this.state = takeGift(this.state, gift);
+    const words = [
+      ...(gift.clay ? [`${gift.clay} clay`] : []),
+      ...Object.entries(gift.paint).map(([c, n]) => `${n} ${colourName(c)} paint`),
+    ].join(' and ');
+    this.toast(`The ${GIANTS[kind].name.toLowerCase()} left you ${words}!`);
+    const top = this.giants.top;
+    if (top) {
+      const mark = new THREE.Object3D();
+      mark.position.copy(top);
+      this.scene.add(mark);
+      this.bubbles.show(mark, 0, '✨', 0, 2.5);
+      setTimeout(() => this.scene.remove(mark), 3000);
+    }
+    this.persist();
+    this.render();
+    setTimeout(() => this.giants.sink(), 2500);
+  }
+
+  /** The book of giants: who you've seen, and what's still out there. */
+  private openGiants() {
+    const s = this.state;
+    const grid = el('div', 'book-grid');
+    for (const k of GIANT_KINDS) {
+      const seen = s.giants.seen.includes(k);
+      const page = el('div', 'book-page' + (seen ? '' : ' missing'));
+      page.append(
+        el('div', 'book-swatch giant-face', seen ? GIANTS[k].icon : '?'),
+        el('div', 'book-name', seen ? GIANTS[k].name : '…'),
+        el('div', 'muted book-source', seen ? GIANTS[k].blurb : 'Not seen yet'),
+      );
+      grid.append(page);
+    }
+    openDialog('Giants of the sea', [
+      el('p', 'muted', `Now and then, while you play, a giant rises from the sea: never more than one a day. Tap it before it sinks for a small gift. ${s.giants.rewarded ? 'You have seen them all!' : 'See all three for a little glazed serpent.'}`),
+      grid,
+    ]);
+  }
+
   // ---------- shooting stars ----------
 
   /** A star streaks across the sky (its shards are already on their way down). */
@@ -1720,6 +1812,7 @@ export class Studio extends IslandView {
     priced(this.lighthouseBtn, 'Lighthouse', LIGHTHOUSE_COST);
     this.lighthouseBtn.style.display = lighthouseUnlocked(s) && !lighthouseOf(s) ? '' : 'none';
     this.lighthouseBtn.classList.toggle('off', s.purse.clay < LIGHTHOUSE_COST);
+    this.giantsBtn.style.display = s.giants.seen.length ? '' : 'none';
     if (this.cardFor) this.showCard(this.cardFor);
   }
 

@@ -58,6 +58,11 @@ export const newHarbour = (): Harbour => ({ level: 0, trip: null, haul: null, tr
  * How a character feels: comfort (from the island around it, eased in), lift (from chats and taps, fading),
  * and when it was last tapped (ms), so taps can't be farmed.
  */
+/** Giants of the sea: the earliest the next may rise (ms since 1970), the kinds seen, and whether seeing them all was rewarded. */
+export const GIANT_KINDS = ['ghost', 'serpent', 'mushroom'] as const;
+export type GiantKind = (typeof GIANT_KINDS)[number];
+export type Giants = { next: number; seen: GiantKind[]; rewarded: boolean };
+
 export type Mood = { comfort: number; lift: number; petted: number };
 
 /** A decoration (or a well or the bowl) put away: off the island, keeping its id, size and turn. */
@@ -89,6 +94,7 @@ export type StudioState = {
   book: { found: string[]; rewards: number }; // the palette book: colours found, rewards handed out (added later: missing = empty)
   levels: Record<string, number>; // upgrade levels of wells, the bowl and the lighthouse, by id (added later: missing = level 0)
   homes: Record<string, string>; // who lives in each house: house id → character id (added later: missing = nobody)
+  giants: Giants; // giants of the sea: when the next may rise, and which kinds you've seen (added later: missing = none yet)
   firsts: string[]; // first times already celebrated ('paint', 'well', 'dip', 'bowl', 'mix')
   lastSeen: number; // ms since 1970
   seed: number; // the random rolls follow from this, so the same save always plays out the same
@@ -126,6 +132,7 @@ export function newStudio(now = Date.now()): StudioState {
     book: { found: [], rewards: 0 },
     levels: {},
     homes: {},
+    giants: { next: 0, seen: [], rewarded: false },
     firsts: [],
     lastSeen: now,
     seed: Math.floor(Math.random() * 2 ** 31),
@@ -272,6 +279,12 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
   if (isObj(o.homes))
     for (const [house, who] of Object.entries(o.homes))
       if (houses.has(house) && typeof who === 'string' && ids.has(who) && !Object.values(homes).includes(who)) homes[house] = who;
+  const gi = isObj(o.giants) ? o.giants : {};
+  const giants: Giants = {
+    next: count(gi.next),
+    seen: Array.isArray(gi.seen) ? [...new Set(gi.seen.filter((k): k is GiantKind => GIANT_KINDS.includes(k as GiantKind)))] : [],
+    rewarded: gi.rewarded === true,
+  };
   const st = isObj(o.stars) ? o.stars : {};
   const stars: Stars = { wait: count(st.wait, FIRST_STAR), seen: whole(st.seen, 0) };
   const away = isObj(o.away) ? { ...normalisePurse(o.away), seconds: count(o.away.seconds) } : null;
@@ -299,6 +312,7 @@ export function normaliseStudio(raw: unknown, now = Date.now()): StudioState {
     book,
     levels,
     homes,
+    giants,
     firsts: Array.isArray(o.firsts) ? o.firsts.filter((f): f is string => typeof f === 'string') : [],
     lastSeen: typeof o.lastSeen === 'number' && Number.isFinite(o.lastSeen) ? o.lastSeen : now,
     seed: typeof o.seed === 'number' && Number.isFinite(o.seed) ? Math.floor(o.seed) : fresh.seed,

@@ -119,6 +119,7 @@ export const ADDED_SINCE_STUDIO_V1 = {
   book: { found: [], rewards: 0 },
   levels: {},
   homes: {},
+  giants: { next: 0, seen: [], rewarded: false },
 };
 
 // An island frozen when shells and sea glass arrived (2026-10-15, layout v1): both, turned, beside older kinds.

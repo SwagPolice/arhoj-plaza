@@ -68,6 +68,7 @@ export function buildIsland(
       : d.kind === 'harbour' ? makeHarbour(levelOf(d))
       : d.kind === 'lighthouse' ? makeLighthouse(levelOf(d))
       : d.kind === 'house' ? makeHouse(d)
+      : d.kind === 'figurine' ? makeFigurine(d)
       : d.kind === 'driftwood' ? makeDriftwood(d)
       : d.kind === 'coral' ? makeCoral(d)
       : d.kind === 'vase' ? makeVase(d)
@@ -535,6 +536,53 @@ function makeHouse(d: Decor) {
   return g;
 }
 
+/**
+ * A sea serpent, lying along +x with its waterline at y = 0: three arched humps, a little tail, and a head raised at
+ * the front with two dark eyes. The giant of the sea is made of it, and so is the small figurine you're given for
+ * seeing all three giants. The humps are named 'hump' and the head 'head', so the giant can move them.
+ */
+export function serpentShape(body: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const R = 0.16; // how round its body is
+  for (let i = 0; i < 3; i++) {
+    const hump = new THREE.Mesh(new THREE.TorusGeometry(0.32, R, 16, 32, Math.PI), body);
+    hump.name = 'hump';
+    hump.position.x = -0.15 - i * 0.78;
+    g.add(hump);
+  }
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(R * 0.9, 0.55, 16), body);
+  tail.rotation.z = Math.PI / 2 + 0.5;
+  tail.position.set(-2.55, 0.1, 0);
+  const head = new THREE.Group();
+  head.name = 'head';
+  const neck = new THREE.Mesh(new THREE.CapsuleGeometry(R, 0.55, 8, 16), body);
+  neck.rotation.z = -0.35;
+  neck.position.set(0.12, 0.3, 0);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(R * 1.55, 24, 16), body);
+  skull.scale.set(1.3, 1, 1);
+  skull.position.set(0.3, 0.68, 0);
+  head.add(neck, skull);
+  const dark = glaze('#2a2422', { roughness: 0.3 });
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), dark);
+    eye.position.set(0.44, 0.74, side * 0.16);
+    head.add(eye);
+  }
+  g.add(head, tail);
+  return g;
+}
+
+/** The serpent figurine: a small glazed sea serpent sitting on the grass, for having seen all the giants. */
+function makeFigurine(d: Decor) {
+  const g = new THREE.Group();
+  const serpent = serpentShape(glaze(main(d, '#3f8f7f')));
+  serpent.scale.setScalar(0.17);
+  serpent.position.set(0.18, 0.02, 0);
+  g.add(serpent);
+  g.scale.setScalar(d.size);
+  return g;
+}
+
 /** The lighthouse's own little island: a small round of the same glazed grass and clay as the big one. */
 function makeIslet() {
   const g = new THREE.Group();
@@ -657,6 +705,7 @@ export function decorHeight(d: Decor) {
   if (d.kind === 'harbour') return 0.3;
   if (d.kind === 'lighthouse') return 4.8;
   if (d.kind === 'house') return 1.35 * HOUSE_SCALE * d.size;
+  if (d.kind === 'figurine') return 0.4 * d.size;
   if (d.kind === 'driftwood') return 0.3 * d.size;
   if (d.kind === 'coral') return 0.55 * d.size;
   if (d.kind === 'mosaic') return 0.1 * d.size;

@@ -7,7 +7,7 @@
 import type { Obstacle } from '../plaza/behaviour';
 import { between } from '../util/random';
 
-export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow', 'lighthouse', 'house'] as const; // well, bowl, harbour, lighthouse, house: Studio Mode only
+export const DECOR_KINDS = ['tree', 'pond', 'rock', 'mushroom', 'well', 'bowl', 'shell', 'seaglass', 'harbour', 'driftwood', 'coral', 'vase', 'mosaic', 'totem', 'rainbow', 'lighthouse', 'house', 'figurine'] as const; // well, bowl, harbour, lighthouse, house: Studio Mode only
 export type DecorKind = (typeof DECOR_KINDS)[number];
 
 /**
@@ -41,10 +41,11 @@ export const SIZES: Record<DecorKind, { min: number; max: number }> = {
   rainbow: { min: 0.7, max: 1.4 },
   lighthouse: { min: 1, max: 1 },
   house: { min: 0.8, max: 1.3 },
+  figurine: { min: 0.7, max: 1.4 },
 };
 
 /** Only things that aren't round from above look any different when turned. Add new non-round kinds here. */
-export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow', 'house'].includes(kind);
+export const canTurn = (kind: DecorKind) => ['rock', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'rainbow', 'house', 'figurine'].includes(kind);
 
 /** The harbour and the lighthouse belong on the island's edge, facing the sea: they stay where they were built. */
 export const onEdge = (kind: DecorKind) => kind === 'harbour' || kind === 'lighthouse';
@@ -60,7 +61,7 @@ export function toSea(layout: IslandLayout, item: Decor): Decor {
 }
 
 /** Trees, ponds and rocks block walking and can't overlap each other; little things (mushrooms, shells…) are walk-through. */
-export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic'].includes(kind);
+export const blocksWalking = (kind: DecorKind) => !['mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'mosaic', 'figurine'].includes(kind);
 
 /** How much ground an object takes up (a circle of this radius). */
 export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
@@ -74,6 +75,7 @@ export function footprint(d: Pick<Decor, 'kind' | 'size'>): number {
   if (d.kind === 'harbour') return 0.55; // the landward end; the pier itself reaches out over the water
   if (d.kind === 'lighthouse') return 0.5;
   if (d.kind === 'house') return 0.75 * HOUSE_SCALE * d.size;
+  if (d.kind === 'figurine') return 0.4 * d.size;
   if (d.kind === 'driftwood') return 0.5 * d.size;
   if (d.kind === 'coral') return 0.3 * d.size;
   if (d.kind === 'mosaic') return 0.5 * d.size;

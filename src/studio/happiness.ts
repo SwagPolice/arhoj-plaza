@@ -20,7 +20,7 @@ const FRIENDSHIP_STEP = 0.1;
 const PET_LIFT = 0.05;
 
 /** Decorations that make the island cosy (not the buildings). */
-const COSY: DecorKind[] = ['tree', 'pond', 'rock', 'mushroom', 'shell', 'seaglass', 'driftwood', 'coral'];
+const COSY: DecorKind[] = ['tree', 'pond', 'rock', 'mushroom', 'shell', 'seaglass', 'driftwood', 'coral', 'figurine'];
 
 const NEUTRAL: Mood = { comfort: 0, lift: 0, petted: 0 };
 export const moodOf = (s: StudioState, id: string): Mood => s.mood[id] ?? NEUTRAL;
